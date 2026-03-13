@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using System.Linq;
 using System.Threading.Tasks;
 using LearningPlatformAPI.Data;
@@ -17,11 +18,13 @@ namespace LearningPlatformAPI.Controllers
     {
         private readonly LearningPlatformContext _context;
         private readonly IMapper _mapper;
+        private readonly ILogger<UsersController> _logger;
 
-        public UsersController(LearningPlatformContext context, IMapper mapper)
+        public UsersController(LearningPlatformContext context, IMapper mapper, ILogger<UsersController> logger)
         {
             _context = context;
             _mapper = mapper;
+            _logger = logger;
         }
 
         // GET: api/Users
@@ -199,8 +202,9 @@ namespace LearningPlatformAPI.Controllers
 
                 return Ok(response);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                _logger.LogError(ex, "Login failed for {Email}", request?.Email);
                 return StatusCode(500, new { message = "Ошибка при входе в систему" });
             }
         }

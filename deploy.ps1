@@ -1,8 +1,8 @@
-# Деплой MyWebApi на сервер
+# Deploy MyWebApi to server
 
 param(
-    [switch]$SkipBuild,   # Пропустить сборку
-    [switch]$SkipRestart  # Пропустить перезапуск сервиса
+    [switch]$SkipBuild,
+    [switch]$SkipRestart
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,32 +13,36 @@ $REMOTE_PATH = "/var/www/myapp/publish"
 $PROJECT_ROOT = $PSScriptRoot
 
 Write-Host "=== MyWebApi Deploy ===" -ForegroundColor Cyan
-Write-Host "Сервер: $USER@$SERVER" -ForegroundColor Gray
+Write-Host "Server: $USER@$SERVER" -ForegroundColor Gray
 Write-Host ""
 
-# --- 1. Сборка ---
 if (-not $SkipBuild) {
-    Write-Host "[1/4] Сборка фронтенда..." -ForegroundColor Yellow
-    Push-Location (Join-Path $PROJECT_ROOT "client-app")
-    npm run build 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Ошибка сборки фронтенда" }
-    Pop-Location
+    $prevErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
 
-    Write-Host "[2/4] Сборка бэкенда..." -ForegroundColor Yellow
-    Push-Location $PROJECT_ROOT
-    dotnet publish -c Release -o ./publish 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Ошибка сборки бэкенда" }
+    Write-Host "[1/4] Building frontend..." -ForegroundColor Yellow
+    Push-Location (Join-Path $PROJECT_ROOT "client-app")
+    npm run build *> $null
+    $feExit = $LASTEXITCODE
     Pop-Location
+    if ($feExit -ne 0) { $ErrorActionPreference = $prevErrorAction; throw "Frontend build failed" }
+
+    Write-Host "[2/4] Building backend..." -ForegroundColor Yellow
+    Push-Location $PROJECT_ROOT
+    dotnet publish -c Release -o ./publish *> $null
+    $beExit = $LASTEXITCODE
+    Pop-Location
+    if ($beExit -ne 0) { $ErrorActionPreference = $prevErrorAction; throw "Backend build failed" }
+
+    $ErrorActionPreference = $prevErrorAction
     Write-Host "      OK" -ForegroundColor Green
 } else {
-    Write-Host "[1-2/4] Сборка пропущена (-SkipBuild)" -ForegroundColor Gray
+    Write-Host "[1-2/4] Build skipped (-SkipBuild)" -ForegroundColor Gray
 }
 
-# --- 2. Загрузка на сервер (только изменённые файлы) ---
-Write-Host "[3/4] Загрузка на сервер..." -ForegroundColor Yellow
+Write-Host "[3/4] Uploading to server..." -ForegroundColor Yellow
 $publishPath = Join-Path $PROJECT_ROOT "publish"
 
-# Проверяем наличие rsync (через WSL или Git Bash) — передаёт только изменённые файлы
 $useRsync = $false
 if (Get-Command wsl -ErrorAction SilentlyContinue) {
     $rsyncCheck = wsl which rsync 2>$null
@@ -46,34 +50,32 @@ if (Get-Command wsl -ErrorAction SilentlyContinue) {
 }
 
 if ($useRsync) {
-    # rsync: только изменённые файлы, быстрее при повторных деплоях
-    Write-Host "      Используется rsync (инкрементальная загрузка)" -ForegroundColor Gray
+    Write-Host "      Using rsync (incremental)" -ForegroundColor Gray
     $publishPathUnix = (wsl wslpath -a $publishPath).Trim().Replace("'", "'\''")
     $remote = "$USER@${SERVER}:$REMOTE_PATH/"
     wsl bash -c "rsync -avz --delete --exclude 'appsettings.Production.json' '$publishPathUnix/' '$remote'"
 } else {
-    # scp: копирует всё (работает без WSL)
-    Write-Host "      Используется scp (полная загрузка)" -ForegroundColor Gray
-    Write-Host "      Подсказка: установите WSL для rsync — будет быстрее" -ForegroundColor Gray
+    Write-Host "      Using scp (full upload)" -ForegroundColor Gray
+    Write-Host "      Tip: install WSL for faster rsync" -ForegroundColor Gray
     $tempRemote = "/tmp/myapp-publish-$(Get-Date -Format 'yyyyMMddHHmmss')"
     scp -r $publishPath "${USER}@${SERVER}:$tempRemote"
     $remotePublish = "$tempRemote/publish"
-    ssh "${USER}@${SERVER}" "sudo cp -r $remotePublish/* $REMOTE_PATH/ && rm -rf $tempRemote"
+    $remoteCmd = "sudo cp -r $remotePublish/* $REMOTE_PATH/; rm -rf $tempRemote"
+    ssh "${USER}@${SERVER}" $remoteCmd
 }
 
-if ($LASTEXITCODE -ne 0) { throw "Ошибка загрузки" }
+if ($LASTEXITCODE -ne 0) { throw "Upload failed" }
 Write-Host "      OK" -ForegroundColor Green
 
-# --- 3. Перезапуск сервиса ---
 if (-not $SkipRestart) {
-    Write-Host "[4/4] Перезапуск myapp..." -ForegroundColor Yellow
+    Write-Host "[4/4] Restarting myapp..." -ForegroundColor Yellow
     ssh "${USER}@${SERVER}" "sudo systemctl restart myapp"
-    if ($LASTEXITCODE -ne 0) { throw "Ошибка перезапуска" }
+    if ($LASTEXITCODE -ne 0) { throw "Restart failed" }
     Write-Host "      OK" -ForegroundColor Green
 } else {
-    Write-Host "[4/4] Перезапуск пропущен (-SkipRestart)" -ForegroundColor Gray
+    Write-Host "[4/4] Restart skipped (-SkipRestart)" -ForegroundColor Gray
 }
 
 Write-Host ""
-Write-Host "=== Готово ===" -ForegroundColor Green
-Write-Host "Сайт: https://learning.dvsmet.ru" -ForegroundColor Cyan
+Write-Host "=== Done ===" -ForegroundColor Green
+Write-Host "Site: https://learning.dvsmet.ru" -ForegroundColor Cyan
