@@ -1,0 +1,40 @@
+# Build outputs
+bin/
+obj/
+publish/
+*.dll
+*.pdb
+*.exe
+
+# Frontend
+client-app/node_modules/
+client-app/dist/
+wwwroot/
+
+# Secrets & local config (не загружать на сервер)
+appsettings.Production.json
+appsettings.*.local.json
+*.user
+secrets.json
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Backup
+backup.sql
+backup.dump
+*.bak
