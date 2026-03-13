@@ -12,7 +12,7 @@ $USER = "deploy"
 $REMOTE_PATH = "/var/www/myapp/publish"
 $PROJECT_ROOT = $PSScriptRoot
 
-Write-Host "=== MyWebApi Deploy ===" -ForegroundColor Cyan
+Write-Host " MyWebApi Deploy " -ForegroundColor Cyan
 Write-Host "Server: $USER@$SERVER" -ForegroundColor Gray
 Write-Host ""
 
@@ -77,5 +77,4 @@ if (-not $SkipRestart) {
 }
 
 Write-Host ""
-Write-Host "=== Done ===" -ForegroundColor Green
 Write-Host "Site: https://learning.dvsmet.ru" -ForegroundColor Cyan
