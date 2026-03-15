@@ -83,7 +83,11 @@ namespace LearningPlatformAPI.Controllers
 
             if (user.IsAdmin)
             {
-                // Админ может создать курс за любого инструктора
+                if (dto.InstructorId <= 0)
+                    return BadRequest(new { message = "Укажите инструктора" });
+                var instructor = await _context.Users.FindAsync(dto.InstructorId);
+                if (instructor == null || (!instructor.IsInstructor && !instructor.IsAdmin))
+                    return BadRequest(new { message = "Инструктором может быть только пользователь с ролью инструктора или админа" });
             }
             else if (user.IsInstructor)
             {
@@ -129,6 +133,14 @@ namespace LearningPlatformAPI.Controllers
 
             if (user.IsInstructor && !user.IsAdmin)
                 dto.InstructorId = uidU;
+            else if (user.IsAdmin)
+            {
+                if (dto.InstructorId <= 0)
+                    return BadRequest(new { message = "Укажите инструктора" });
+                var instructor = await _context.Users.FindAsync(dto.InstructorId);
+                if (instructor == null || (!instructor.IsInstructor && !instructor.IsAdmin))
+                    return BadRequest(new { message = "Инструктором может быть только пользователь с ролью инструктора или админа" });
+            }
 
             _mapper.Map(dto, entity);
 

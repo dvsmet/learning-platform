@@ -12,7 +12,7 @@ $USER = "deploy"
 $REMOTE_PATH = "/var/www/myapp/publish"
 $PROJECT_ROOT = $PSScriptRoot
 
-Write-Host " MyWebApi Deploy " -ForegroundColor Cyan
+Write-Host "=== MyWebApi Deploy ===" -ForegroundColor Cyan
 Write-Host "Server: $USER@$SERVER" -ForegroundColor Gray
 Write-Host ""
 
@@ -29,7 +29,7 @@ if (-not $SkipBuild) {
 
     Write-Host "[2/4] Building backend..." -ForegroundColor Yellow
     Push-Location $PROJECT_ROOT
-    dotnet publish -c Release -o ./publish *> $null
+    dotnet publish MyWebApi.csproj -c Release -o ./publish *> $null
     $beExit = $LASTEXITCODE
     Pop-Location
     if ($beExit -ne 0) { $ErrorActionPreference = $prevErrorAction; throw "Backend build failed" }
@@ -55,13 +55,12 @@ if ($useRsync) {
     $remote = "$USER@${SERVER}:$REMOTE_PATH/"
     wsl bash -c "rsync -avz --delete --exclude 'appsettings.Production.json' '$publishPathUnix/' '$remote'"
 } else {
-    Write-Host "      Using scp (full upload)" -ForegroundColor Gray
-    Write-Host "      Tip: install WSL for faster rsync" -ForegroundColor Gray
-    $tempRemote = "/tmp/myapp-publish-$(Get-Date -Format 'yyyyMMddHHmmss')"
-    scp -r $publishPath "${USER}@${SERVER}:$tempRemote"
-    $remotePublish = "$tempRemote/publish"
-    $remoteCmd = "sudo cp -r $remotePublish/* $REMOTE_PATH/; rm -rf $tempRemote"
-    ssh "${USER}@${SERVER}" $remoteCmd
+    Write-Host "      Using scp (direct to publish, deploy has chown)" -ForegroundColor Gray
+    ssh "${USER}@${SERVER}" "cp $REMOTE_PATH/appsettings.Production.json /tmp/appsettings.Production.json.bak 2>/dev/null || true"
+    $remoteParent = "/var/www/myapp"
+    scp -r "$publishPath" "${USER}@${SERVER}:$remoteParent"
+    if ($LASTEXITCODE -ne 0) { throw "scp failed - check connection" }
+    ssh "${USER}@${SERVER}" "cp /tmp/appsettings.Production.json.bak $REMOTE_PATH/appsettings.Production.json 2>/dev/null || true"
 }
 
 if ($LASTEXITCODE -ne 0) { throw "Upload failed" }
@@ -77,4 +76,5 @@ if (-not $SkipRestart) {
 }
 
 Write-Host ""
+Write-Host "=== Done ===" -ForegroundColor Green
 Write-Host "Site: https://learning.dvsmet.ru" -ForegroundColor Cyan

@@ -1,12 +1,14 @@
+import { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { ThemeProvider, CssBaseline } from '@mui/material';
+import { ThemeProvider, CssBaseline, CircularProgress, Box } from '@mui/material';
 import theme from './theme/theme';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import LoginPage from './pages/LoginPage';
-import AdminDashboard from './pages/admin/AdminDashboard';
-import InstructorDashboard from './pages/instructor/InstructorDashboard';
-import UserDashboard from './pages/user/UserDashboard';
+
+const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
+const InstructorDashboard = lazy(() => import('./pages/instructor/InstructorDashboard'));
+const UserDashboard = lazy(() => import('./pages/user/UserDashboard'));
 
 export default function App() {
   return (
@@ -14,6 +16,11 @@ export default function App() {
       <CssBaseline />
       <AuthProvider>
         <BrowserRouter>
+          <Suspense fallback={
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
+              <CircularProgress />
+            </Box>
+          }>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route
@@ -43,6 +50,7 @@ export default function App() {
             <Route path="/" element={<Navigate to="/login" replace />} />
             <Route path="*" element={<Navigate to="/login" replace />} />
           </Routes>
+          </Suspense>
         </BrowserRouter>
       </AuthProvider>
     </ThemeProvider>

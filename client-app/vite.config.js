@@ -15,5 +15,14 @@ export default defineConfig({
   build: {
     outDir: '../wwwroot',
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-mui-core': ['@mui/material'],
+          'vendor-mui-icons': ['@mui/icons-material'],
+          'vendor-router': ['react-router-dom'],
+        },
+      },
+    },
   },
 });

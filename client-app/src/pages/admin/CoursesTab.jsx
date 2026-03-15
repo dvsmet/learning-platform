@@ -59,26 +59,37 @@ export default function CoursesTab() {
     setDialogOpen(true);
   };
 
+  const instructors = users.filter(
+    (u) => Boolean(u?.isInstructor ?? u?.IsInstructor) || Boolean(u?.isAdmin ?? u?.IsAdmin)
+  );
+
   const openEdit = (c) => {
     setEditingId(c.id);
+    const instructorId = c.instructorId ?? '';
+    const validInstructor = instructorId && instructors.some((u) => u.id === instructorId);
     setForm({
       title: c.title || '',
       description: c.description || '',
       durationHours: c.durationHours ?? '',
-      instructorId: c.instructorId ?? '',
+      instructorId: validInstructor ? instructorId : '',
       categoryIds: c.categoryIds || [],
     });
     setDialogOpen(true);
   };
 
   const handleSave = async () => {
+    const instructorId = Number(form.instructorId);
+    if (!instructorId || !instructors.some((u) => u.id === instructorId)) {
+      setError('Выберите инструктора или админа');
+      return;
+    }
     try {
       setError('');
       const payload = {
         title: form.title,
         description: form.description,
         durationHours: Number(form.durationHours),
-        instructorId: Number(form.instructorId),
+        instructorId,
         categoryIds: form.categoryIds,
       };
       if (editingId) {
@@ -156,13 +167,18 @@ export default function CoursesTab() {
           <FormControl fullWidth required>
             <InputLabel>Инструктор</InputLabel>
             <Select
-              value={form.instructorId}
+              value={form.instructorId || ''}
               label="Инструктор"
               onChange={(e) => setForm({ ...form, instructorId: e.target.value })}
             >
-              {users.map((u) => (
-                <MenuItem key={u.id} value={u.id}>{u.name}</MenuItem>
-              ))}
+              <MenuItem value="">
+                <em>Выберите инструктора</em>
+              </MenuItem>
+              {instructors.map((u) => (
+                  <MenuItem key={u.id} value={u.id}>
+                    {u.name} {u.isAdmin || u.IsAdmin ? '(админ)' : '(инструктор)'}
+                  </MenuItem>
+                ))}
             </Select>
           </FormControl>
           <FormControl fullWidth>
