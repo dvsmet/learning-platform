@@ -1,4 +1,4 @@
-# Deploy MyWebApi to server
+# Deploy to server
 
 param(
     [switch]$SkipBuild,
