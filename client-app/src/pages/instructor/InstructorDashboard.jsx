@@ -6,7 +6,9 @@ import QuizIcon from '@mui/icons-material/Quiz';
 import RateReviewIcon from '@mui/icons-material/RateReview';
 import PersonIcon from '@mui/icons-material/Person';
 import ChatIcon from '@mui/icons-material/Chat';
+import BarChartIcon from '@mui/icons-material/BarChart';
 import DashboardLayout from '../../components/DashboardLayout';
+import AnalyticsTab from '../../components/AnalyticsTab';
 import MyCoursesTab from './MyCoursesTab';
 import ChatTab from './ChatTab';
 import RequestsTab from './RequestsTab';
@@ -16,6 +18,7 @@ import ReviewsTab from './ReviewsTab';
 import ProfileTab from './ProfileTab';
 
 const menuItems = [
+  { path: '/instructor/analytics', label: 'Аналитика', icon: <BarChartIcon /> },
   { path: '/instructor/courses', label: 'Мои курсы', icon: <SchoolIcon /> },
   { path: '/instructor/requests', label: 'Заявки', icon: <AssignmentIcon /> },
   { path: '/instructor/lessons', label: 'Уроки', icon: <MenuBookIcon /> },
@@ -30,6 +33,7 @@ export default function InstructorDashboard() {
     <DashboardLayout menuItems={menuItems} title="Корпоративная платформа обучения">
       <Routes>
         <Route index element={<Navigate to="courses" replace />} />
+        <Route path="analytics" element={<AnalyticsTab subtitle="Сводка по вашим курсам и студентам." />} />
         <Route path="courses" element={<MyCoursesTab />} />
         <Route path="requests" element={<RequestsTab />} />
         <Route path="lessons" element={<LessonsTab />} />

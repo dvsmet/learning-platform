@@ -8,7 +8,9 @@ import AssignmentIcon from '@mui/icons-material/Assignment';
 import RateReviewIcon from '@mui/icons-material/RateReview';
 import ChatIcon from '@mui/icons-material/Chat';
 import PersonIcon from '@mui/icons-material/Person';
+import BarChartIcon from '@mui/icons-material/BarChart';
 import DashboardLayout from '../../components/DashboardLayout';
+import AnalyticsTab from '../../components/AnalyticsTab';
 import UsersTab from './UsersTab';
 import ChatTab from '../instructor/ChatTab';
 import ProfileTab from './ProfileTab';
@@ -20,6 +22,7 @@ import OrdersTab from './OrdersTab';
 import ReviewsTab from './ReviewsTab';
 
 const menuItems = [
+  { path: '/admin/analytics', label: 'Аналитика', icon: <BarChartIcon /> },
   { path: '/admin/users', label: 'Пользователи', icon: <PeopleIcon /> },
   { path: '/admin/courses', label: 'Курсы', icon: <SchoolIcon /> },
   { path: '/admin/categories', label: 'Категории', icon: <CategoryIcon /> },
@@ -36,6 +39,7 @@ export default function AdminDashboard() {
     <DashboardLayout menuItems={menuItems} title="Корпоративная платформа обучения">
       <Routes>
         <Route index element={<Navigate to="users" replace />} />
+        <Route path="analytics" element={<AnalyticsTab subtitle="Сводка по инструкторам и всем курсам." />} />
         <Route path="users" element={<UsersTab />} />
         <Route path="courses" element={<CoursesTab />} />
         <Route path="categories" element={<CategoriesTab />} />
