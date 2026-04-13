@@ -1,4 +1,4 @@
-using System.Text;
+using ClosedXML.Excel;
 using LearningPlatformAPI.Data;
 using LearningPlatformAPI.DTOs;
 using LearningPlatformAPI.Models;
@@ -520,7 +520,7 @@ public class AnalyticsController : ControllerBase
         string.Equals(status?.Trim(), target, StringComparison.OrdinalIgnoreCase);
 
     [HttpGet("export")]
-    public async Task<IActionResult> ExportCsv()
+    public async Task<IActionResult> ExportExcel()
     {
         var (scope, error) = await TryLoadScopeForCurrentUserAsync();
         if (error != null) return error;
@@ -528,113 +528,152 @@ public class AnalyticsController : ControllerBase
 
         var data = BuildDashboardFromScope(scope);
 
-        var sb = new StringBuilder();
-        sb.Append('\uFEFF');
-        sb.AppendLine(
-            "course_id;title;instructor;lessons_total;enrolled;progress_started_rows;progress_completed_rows;avg_progress_pct;completion_rate_pct;fully_completed_learners;avg_quiz_score_pct;total_quiz_attempts");
+        using var workbook = new XLWorkbook();
 
-        foreach (var row in data.Courses.OrderByDescending(x => x.EnrolledCount))
+        static void StyleHeader(IXLWorksheet ws, int lastCol)
         {
-            sb.AppendLine(string.Join(';', new[]
+            ws.Range(1, 1, 1, lastCol).Style.Font.Bold = true;
+        }
+
+        static void FinishSheet(IXLWorksheet ws, int lastCol)
+        {
+            StyleHeader(ws, lastCol);
+            ws.Columns(1, lastCol).AdjustToContents();
+            ws.SheetView.FreezeRows(1);
+        }
+
+        {
+            var ws = workbook.Worksheets.Add("Курсы");
+            var headers = new[]
             {
-                row.CourseId.ToString(),
-                CsvEscape(row.Title),
-                CsvEscape(row.InstructorName ?? ""),
-                row.LessonsTotal.ToString(),
-                row.EnrolledCount.ToString(),
-                row.LessonProgressStartedRows.ToString(),
-                row.LessonProgressCompletedRows.ToString(),
-                row.AvgProgressPercent.ToString("F1", System.Globalization.CultureInfo.InvariantCulture),
-                row.CompletionRatePercent.ToString("F1", System.Globalization.CultureInfo.InvariantCulture),
-                row.FullyCompletedLearnersCount.ToString(),
-                row.AvgNormalizedQuizScore?.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) ?? "",
-                row.TotalQuizAttempts.ToString()
-            }));
+                "ID курса", "Название курса", "Инструктор", "Число уроков", "Записалось человек",
+                "Строк прогресса «начато»", "Строк прогресса «завершено»", "Средний прогресс (%)",
+                "Процент завершивших все уроки", "Завершили все уроки (чел.)", "Средний балл тестов (%)", "Всего попыток тестов"
+            };
+            for (var c = 0; c < headers.Length; c++)
+                ws.Cell(1, c + 1).Value = headers[c];
+            var row = 2;
+            foreach (var x in data.Courses.OrderByDescending(x => x.EnrolledCount))
+            {
+                ws.Cell(row, 1).Value = x.CourseId;
+                ws.Cell(row, 2).Value = x.Title;
+                ws.Cell(row, 3).Value = x.InstructorName ?? "";
+                ws.Cell(row, 4).Value = x.LessonsTotal;
+                ws.Cell(row, 5).Value = x.EnrolledCount;
+                ws.Cell(row, 6).Value = x.LessonProgressStartedRows;
+                ws.Cell(row, 7).Value = x.LessonProgressCompletedRows;
+                ws.Cell(row, 8).Value = x.AvgProgressPercent;
+                ws.Cell(row, 9).Value = x.CompletionRatePercent;
+                ws.Cell(row, 10).Value = x.FullyCompletedLearnersCount;
+                if (x.AvgNormalizedQuizScore.HasValue)
+                    ws.Cell(row, 11).Value = x.AvgNormalizedQuizScore.Value;
+                ws.Cell(row, 12).Value = x.TotalQuizAttempts;
+                row++;
+            }
+            FinishSheet(ws, headers.Length);
         }
 
         if (data.Instructors is { Count: > 0 })
         {
-            sb.AppendLine();
-            sb.AppendLine("instructor_id;instructor_name;courses_count;distinct_students;avg_progress_across_courses;avg_quiz_across_courses");
+            var ws = workbook.Worksheets.Add("Инструкторы");
+            var headers = new[]
+            {
+                "ID инструктора", "Инструктор", "Число курсов", "Студентов (уник.)",
+                "Средний прогресс по курсам (%)", "Средний балл тестов по курсам (%)"
+            };
+            for (var c = 0; c < headers.Length; c++)
+                ws.Cell(1, c + 1).Value = headers[c];
+            var row = 2;
             foreach (var i in data.Instructors.OrderByDescending(x => x.DistinctStudentsCount))
             {
-                sb.AppendLine(string.Join(';', new[]
-                {
-                    i.InstructorId.ToString(),
-                    CsvEscape(i.Name),
-                    i.CoursesCount.ToString(),
-                    i.DistinctStudentsCount.ToString(),
-                    i.AvgProgressPercentAcrossCourses.ToString("F1", System.Globalization.CultureInfo.InvariantCulture),
-                    i.AvgNormalizedQuizScoreAcrossCourses?.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) ?? ""
-                }));
+                ws.Cell(row, 1).Value = i.InstructorId;
+                ws.Cell(row, 2).Value = i.Name;
+                ws.Cell(row, 3).Value = i.CoursesCount;
+                ws.Cell(row, 4).Value = i.DistinctStudentsCount;
+                ws.Cell(row, 5).Value = i.AvgProgressPercentAcrossCourses;
+                if (i.AvgNormalizedQuizScoreAcrossCourses.HasValue)
+                    ws.Cell(row, 6).Value = i.AvgNormalizedQuizScoreAcrossCourses.Value;
+                row++;
             }
+            FinishSheet(ws, headers.Length);
         }
 
         var learnerRows = await BuildLearnerSummariesAsync(scope);
         if (learnerRows.Count > 0)
         {
-            sb.AppendLine();
-            sb.AppendLine(
-                "user_id;name;email;enrolled_courses;avg_progress_pct;quizzes_total;quizzes_attempted;quizzes_passed;last_quiz_attempt_utc");
-            foreach (var L in learnerRows.OrderByDescending(x => x.LastQuizAttemptUtc))
             {
-                sb.AppendLine(string.Join(';', new[]
+                var ws = workbook.Worksheets.Add("Обучающиеся");
+                var headers = new[]
                 {
-                    L.UserId.ToString(),
-                    CsvEscape(L.Name),
-                    CsvEscape(L.Email),
-                    L.EnrolledCoursesCount.ToString(),
-                    L.AvgProgressPercent.ToString("F1", System.Globalization.CultureInfo.InvariantCulture),
-                    L.QuizzesTotal.ToString(),
-                    L.QuizzesAttempted.ToString(),
-                    L.QuizzesPassed.ToString(),
-                    L.LastQuizAttemptUtc?.ToString("o", System.Globalization.CultureInfo.InvariantCulture) ?? ""
-                }));
+                    "ID пользователя", "ФИО", "Email", "Число курсов по записи", "Средний прогресс (%)",
+                    "Тестов всего", "Тестов с попытками", "Тестов сдано (по порогу)", "Последняя попытка теста (UTC)"
+                };
+                for (var c = 0; c < headers.Length; c++)
+                    ws.Cell(1, c + 1).Value = headers[c];
+                var row = 2;
+                foreach (var L in learnerRows.OrderByDescending(x => x.LastQuizAttemptUtc))
+                {
+                    ws.Cell(row, 1).Value = L.UserId;
+                    ws.Cell(row, 2).Value = L.Name;
+                    ws.Cell(row, 3).Value = L.Email;
+                    ws.Cell(row, 4).Value = L.EnrolledCoursesCount;
+                    ws.Cell(row, 5).Value = L.AvgProgressPercent;
+                    ws.Cell(row, 6).Value = L.QuizzesTotal;
+                    ws.Cell(row, 7).Value = L.QuizzesAttempted;
+                    ws.Cell(row, 8).Value = L.QuizzesPassed;
+                    if (L.LastQuizAttemptUtc.HasValue)
+                        ws.Cell(row, 9).Value = L.LastQuizAttemptUtc.Value;
+                    row++;
+                }
+                FinishSheet(ws, headers.Length);
             }
 
-            sb.AppendLine();
-            sb.AppendLine(
-                "user_id;user_email;course_id;course_title;lesson_num;lesson_title;quiz_id;quiz_title;attempts;best_score_pct;passed;last_attempt_utc");
-            var learnerIds = learnerRows.Select(l => l.UserId).Distinct().ToList();
-            var users = await _context.Users.AsNoTracking()
-                .Where(u => learnerIds.Contains(u.Id))
-                .ToDictionaryAsync(u => u.Id);
-            foreach (var L in learnerRows.OrderBy(x => x.Name))
             {
-                if (!users.TryGetValue(L.UserId, out var u)) continue;
-                var detail = BuildLearnerDetail(scope, u);
-                foreach (var c in detail.Courses)
-                foreach (var q in c.Quizzes)
+                var ws = workbook.Worksheets.Add("Тесты подробно");
+                var headers = new[]
                 {
-                    sb.AppendLine(string.Join(';', new[]
+                    "ID пользователя", "Email", "ID курса", "Курс", "Номер урока", "Название урока", "ID теста", "Тест",
+                    "Число попыток", "Лучший результат (%)", "Сдано по порогу (1 да / 0 нет)", "Последняя попытка (UTC)"
+                };
+                for (var c = 0; c < headers.Length; c++)
+                    ws.Cell(1, c + 1).Value = headers[c];
+                var row = 2;
+                var learnerIds = learnerRows.Select(l => l.UserId).Distinct().ToList();
+                var users = await _context.Users.AsNoTracking()
+                    .Where(u => learnerIds.Contains(u.Id))
+                    .ToDictionaryAsync(u => u.Id);
+                foreach (var L in learnerRows.OrderBy(x => x.Name))
+                {
+                    if (!users.TryGetValue(L.UserId, out var u)) continue;
+                    var detail = BuildLearnerDetail(scope, u);
+                    foreach (var course in detail.Courses)
+                    foreach (var q in course.Quizzes)
                     {
-                        L.UserId.ToString(),
-                        CsvEscape(L.Email),
-                        c.CourseId.ToString(),
-                        CsvEscape(c.CourseTitle),
-                        q.LessonNumber.ToString(),
-                        CsvEscape(q.LessonTitle),
-                        q.QuizId.ToString(),
-                        CsvEscape(q.QuizTitle),
-                        q.AttemptsCount.ToString(),
-                        q.BestScorePercent?.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) ?? "",
-                        q.Passed ? "1" : "0",
-                        q.LastAttemptUtc?.ToString("o", System.Globalization.CultureInfo.InvariantCulture) ?? ""
-                    }));
+                        ws.Cell(row, 1).Value = L.UserId;
+                        ws.Cell(row, 2).Value = L.Email;
+                        ws.Cell(row, 3).Value = course.CourseId;
+                        ws.Cell(row, 4).Value = course.CourseTitle;
+                        ws.Cell(row, 5).Value = q.LessonNumber;
+                        ws.Cell(row, 6).Value = q.LessonTitle;
+                        ws.Cell(row, 7).Value = q.QuizId;
+                        ws.Cell(row, 8).Value = q.QuizTitle;
+                        ws.Cell(row, 9).Value = q.AttemptsCount;
+                        if (q.BestScorePercent.HasValue)
+                            ws.Cell(row, 10).Value = q.BestScorePercent.Value;
+                        ws.Cell(row, 11).Value = q.Passed ? 1 : 0;
+                        if (q.LastAttemptUtc.HasValue)
+                            ws.Cell(row, 12).Value = q.LastAttemptUtc.Value;
+                        row++;
+                    }
                 }
+                FinishSheet(ws, headers.Length);
             }
         }
 
-        var bytes = Encoding.UTF8.GetBytes(sb.ToString());
-        var fileName = $"analytics_{DateTime.UtcNow:yyyyMMdd_HHmmss}.csv";
-        return File(bytes, "text/csv; charset=utf-8", fileName);
-    }
-
-    private static string CsvEscape(string s)
-    {
-        if (string.IsNullOrEmpty(s)) return "\"\"";
-        var needs = s.Contains(';') || s.Contains('"') || s.Contains('\n') || s.Contains('\r');
-        var t = s.Replace("\"", "\"\"");
-        return needs ? $"\"{t}\"" : t;
+        await using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        var bytes = stream.ToArray();
+        var fileName = $"analytics_{DateTime.UtcNow:yyyyMMdd_HHmmss}.xlsx";
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
     }
 }

@@ -48,7 +48,7 @@ export async function getAnalyticsLearnerDetail(userId) {
   return resp.json();
 }
 
-export async function downloadAnalyticsCsv() {
+export async function downloadAnalyticsExcel() {
   const resp = await fetch(`${BASE}/Analytics/export`, { headers: authHeaders() });
   if (!resp.ok) {
     let msg = `Ошибка ${resp.status}`;
@@ -60,7 +60,7 @@ export async function downloadAnalyticsCsv() {
   }
   const blob = await resp.blob();
   const dispo = resp.headers.get('Content-Disposition');
-  let fileName = 'analytics.csv';
+  let fileName = 'analytics.xlsx';
   const m = dispo?.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)/i) || dispo?.match(/filename="([^"]+)"/);
   if (m) fileName = m[1].trim();
   const url = URL.createObjectURL(blob);

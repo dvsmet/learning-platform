@@ -10,13 +10,14 @@ import DownloadIcon from '@mui/icons-material/Download';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import MailOutlineIcon from '@mui/icons-material/MailOutline';
 import ChatIcon from '@mui/icons-material/Chat';
-import PersonSearchIcon from '@mui/icons-material/PersonSearch';
-import { getAnalyticsDashboard, getAnalyticsLearners, getAnalyticsLearnerDetail, downloadAnalyticsCsv } from '../api/analytics';
+import { getAnalyticsDashboard, getAnalyticsLearners, getAnalyticsLearnerDetail, downloadAnalyticsExcel } from '../api/analytics';
+import { useAuth } from '../context/AuthContext';
 
 const binLabels = ['0–9%', '10–19%', '20–29%', '30–39%', '40–49%', '50–59%', '60–69%', '70–79%', '80–89%', '90–100%'];
 
 export default function AnalyticsTab({ subtitle, chatPath }) {
   const navigate = useNavigate();
+  const { user: authUser } = useAuth();
   const [data, setData] = useState(null);
   const [learnersPayload, setLearnersPayload] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -121,6 +122,12 @@ export default function AnalyticsTab({ subtitle, chatPath }) {
     return list;
   }, [learners, learnerOrderBy, learnerOrder]);
 
+  const mailSignatureLine = useMemo(() => {
+    if (!authUser) return 'Администратор';
+    if (authUser.isAdmin) return 'Администратор';
+    return (authUser.name && String(authUser.name).trim()) || 'Инструктор';
+  }, [authUser]);
+
   const handleLearnerSort = (prop) => {
     if (learnerOrderBy === prop) setLearnerOrder((o) => (o === 'asc' ? 'desc' : 'asc'));
     else {
@@ -144,16 +151,27 @@ export default function AnalyticsTab({ subtitle, chatPath }) {
     }
   };
 
-  const mailtoHref = (email, name) => {
-    const sub = encodeURIComponent(`Обучение: напоминание${name ? ` (${name})` : ''}`);
-    const body = encodeURIComponent('Здравствуйте!\n\n');
-    return `mailto:${email}?subject=${sub}&body=${body}`;
+  /** Черновик в Gmail (нужен вход в Google). */
+  const gmailComposeUrl = (email, learnerName, signatureLine) => {
+    const su = 'Обучение: напоминание';
+    const whom = learnerName?.trim() || 'коллега';
+    const body = `Уважаемый ${whom}!\n\n\n\nС уважением,\n${signatureLine}`;
+    const u = new URL('https://mail.google.com/mail/u/0/');
+    u.searchParams.set('view', 'cm');
+    u.searchParams.set('fs', '1');
+    u.searchParams.set('to', email);
+    u.searchParams.set('su', su);
+    u.searchParams.set('body', body);
+    return u.toString();
   };
 
-  const openMailInNewTab = () => {
+  const handleOpenGmailCompose = () => {
     if (!learnerDetail?.email) return;
-    const url = mailtoHref(learnerDetail.email, learnerDetail.name);
-    window.open(url, '_blank', 'noopener,noreferrer');
+    window.open(
+      gmailComposeUrl(learnerDetail.email, learnerDetail.name, mailSignatureLine),
+      '_blank',
+      'noopener,noreferrer',
+    );
   };
 
   const openPlatformChat = () => {
@@ -191,7 +209,7 @@ export default function AnalyticsTab({ subtitle, chatPath }) {
   const handleExport = async () => {
     setExporting(true);
     try {
-      await downloadAnalyticsCsv();
+      await downloadAnalyticsExcel();
     } catch (e) {
       setError(e.message || 'Ошибка выгрузки');
     } finally {
@@ -215,7 +233,7 @@ export default function AnalyticsTab({ subtitle, chatPath }) {
           <Typography variant="h5">Аналитика</Typography>
         </Box>
         <Button variant="outlined" startIcon={<DownloadIcon />} onClick={handleExport} disabled={exporting}>
-          {exporting ? 'Выгрузка…' : 'Выгрузить в файл CSV'}
+          {exporting ? 'Выгрузка…' : 'Выгрузить в Excel'}
         </Button>
       </Box>
       {subtitle && (
@@ -262,13 +280,8 @@ export default function AnalyticsTab({ subtitle, chatPath }) {
 
       {learners.length > 0 && (
         <>
-          <Typography variant="h6" gutterBottom sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <PersonSearchIcon color="primary" fontSize="small" />
+          <Typography variant="h6" gutterBottom sx={{ mt: 2 }}>
             Обучающиеся
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Пользователи с одобренной записью на курсы в этой выборке. Тест считается сданным, если лучшая попытка даёт не ниже{' '}
-            <strong>{passingPct}%</strong> от максимального балла. Данные по тестам и датам — в детализации и в CSV.
           </Typography>
           <TableContainer component={Paper} sx={{ mb: 3 }}>
             <Table size="small">
@@ -358,16 +371,6 @@ export default function AnalyticsTab({ subtitle, chatPath }) {
           {learnerDetailError && <Alert severity="error">{learnerDetailError}</Alert>}
           {learnerDetail && !learnerDetailLoading && (
             <>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                {learnerDetail.email}
-                {' · '}
-                зачёт по тесту при лучшем результате ≥ {learnerDetail.passingScorePercent}%
-              </Typography>
-              {learnerDetail.courses?.length > 1 && (
-                <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
-                  Несколько курсов: «Написать на платформе» откроет чат в контексте первого курса в списке (по названию). Остальные потоки — в разделе «Чаты».
-                </Typography>
-              )}
               {learnerDetail.courses?.map((c) => (
                 <Box key={c.courseId} sx={{ mb: 3 }}>
                   <Typography variant="subtitle1" fontWeight={600} gutterBottom>
@@ -379,40 +382,46 @@ export default function AnalyticsTab({ subtitle, chatPath }) {
                       <Chip size="small" label="Все уроки завершены" color="success" sx={{ ml: 1 }} />
                     ) : null}
                   </Typography>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Урок</TableCell>
-                        <TableCell>Тест</TableCell>
-                        <TableCell align="right">Попыток</TableCell>
-                        <TableCell align="right">Лучший, %</TableCell>
-                        <TableCell>Статус</TableCell>
-                        <TableCell>Последняя попытка</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {(c.quizzes ?? []).map((q) => (
-                        <TableRow key={q.quizId}>
-                          <TableCell>
-                            <Typography variant="body2">
-                              №{q.lessonNumber} {q.lessonTitle}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>{q.quizTitle}</TableCell>
-                          <TableCell align="right">{q.attemptsCount}</TableCell>
-                          <TableCell align="right">{q.bestScorePercent != null ? `${q.bestScorePercent}%` : '—'}</TableCell>
-                          <TableCell>
-                            {q.attemptsCount === 0 && <Chip size="small" label="Не начат" />}
-                            {q.attemptsCount > 0 && q.passed && <Chip size="small" label="Сдан" color="success" />}
-                            {q.attemptsCount > 0 && !q.passed && <Chip size="small" label="Не сдан" color="warning" />}
-                          </TableCell>
-                          <TableCell>
-                            {q.lastAttemptUtc ? new Date(q.lastAttemptUtc).toLocaleString('ru-RU') : '—'}
-                          </TableCell>
+                  {(c.quizzes ?? []).length === 0 ? (
+                    <Typography variant="body2" color="text.secondary">
+                      Этот курс пока пустой.
+                    </Typography>
+                  ) : (
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Урок</TableCell>
+                          <TableCell>Тест</TableCell>
+                          <TableCell align="right">Попыток</TableCell>
+                          <TableCell align="right">Лучший, %</TableCell>
+                          <TableCell>Статус</TableCell>
+                          <TableCell>Последняя попытка</TableCell>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                      </TableHead>
+                      <TableBody>
+                        {(c.quizzes ?? []).map((q) => (
+                          <TableRow key={q.quizId}>
+                            <TableCell>
+                              <Typography variant="body2">
+                                №{q.lessonNumber} {q.lessonTitle}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>{q.quizTitle}</TableCell>
+                            <TableCell align="right">{q.attemptsCount}</TableCell>
+                            <TableCell align="right">{q.bestScorePercent != null ? `${q.bestScorePercent}%` : '—'}</TableCell>
+                            <TableCell>
+                              {q.attemptsCount === 0 && <Chip size="small" label="Не начат" />}
+                              {q.attemptsCount > 0 && q.passed && <Chip size="small" label="Сдан" color="success" />}
+                              {q.attemptsCount > 0 && !q.passed && <Chip size="small" label="Не сдан" color="warning" />}
+                            </TableCell>
+                            <TableCell>
+                              {q.lastAttemptUtc ? new Date(q.lastAttemptUtc).toLocaleString('ru-RU') : '—'}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
                 </Box>
               ))}
             </>
@@ -420,14 +429,14 @@ export default function AnalyticsTab({ subtitle, chatPath }) {
         </DialogContent>
         <DialogActions sx={{ flexWrap: 'wrap', gap: 1 }}>
           <Button
+            type="button"
             startIcon={<MailOutlineIcon />}
-            onClick={openMailInNewTab}
+            onClick={handleOpenGmailCompose}
             disabled={!learnerDetail?.email}
           >
-            Написать на почту
+            Написать в Gmail
           </Button>
           <Button
-            variant="outlined"
             startIcon={<ChatIcon />}
             onClick={openPlatformChat}
             disabled={!chatPath || !learnerDetail?.courses?.length}

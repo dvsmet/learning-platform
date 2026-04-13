@@ -32,7 +32,7 @@ export default function InstructorDashboard() {
   return (
     <DashboardLayout menuItems={menuItems} title="Корпоративная платформа обучения">
       <Routes>
-        <Route index element={<Navigate to="courses" replace />} />
+        <Route index element={<Navigate to="analytics" replace />} />
         <Route path="analytics" element={<AnalyticsTab subtitle="Сводка по вашим курсам и студентам." chatPath="/instructor/chat" />} />
         <Route path="courses" element={<MyCoursesTab />} />
         <Route path="requests" element={<RequestsTab />} />
