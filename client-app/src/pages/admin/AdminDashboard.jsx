@@ -39,7 +39,7 @@ export default function AdminDashboard() {
     <DashboardLayout menuItems={menuItems} title="Корпоративная платформа обучения">
       <Routes>
         <Route index element={<Navigate to="users" replace />} />
-        <Route path="analytics" element={<AnalyticsTab subtitle="Сводка по инструкторам и всем курсам." />} />
+        <Route path="analytics" element={<AnalyticsTab subtitle="Сводка по инструкторам и всем курсам." chatPath="/admin/chat" />} />
         <Route path="users" element={<UsersTab />} />
         <Route path="courses" element={<CoursesTab />} />
         <Route path="categories" element={<CategoriesTab />} />

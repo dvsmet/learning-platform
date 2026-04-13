@@ -1,5 +1,59 @@
 namespace LearningPlatformAPI.DTOs;
 
+/// <summary>Список обучающихся для вкладки аналитики.</summary>
+public class LearnerAnalyticsListDTO
+{
+    /// <summary>Порог в процентах от max балла теста: лучшая попытка ≥ этого значения считается «сдано».</summary>
+    public int PassingScorePercent { get; set; }
+    public List<LearnerAnalyticsSummaryDTO> Learners { get; set; } = [];
+}
+
+public class LearnerAnalyticsSummaryDTO
+{
+    public int UserId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public int EnrolledCoursesCount { get; set; }
+    public double AvgProgressPercent { get; set; }
+    public int QuizzesTotal { get; set; }
+    public int QuizzesAttempted { get; set; }
+    public int QuizzesPassed { get; set; }
+    public DateTime? LastQuizAttemptUtc { get; set; }
+}
+
+public class LearnerAnalyticsDetailDTO
+{
+    public int PassingScorePercent { get; set; }
+    public int UserId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public List<LearnerCourseDetailDTO> Courses { get; set; } = [];
+}
+
+public class LearnerCourseDetailDTO
+{
+    public int CourseId { get; set; }
+    public string CourseTitle { get; set; } = string.Empty;
+    public double ProgressPercent { get; set; }
+    public int LessonsCompleted { get; set; }
+    public int LessonsTotal { get; set; }
+    public bool AllLessonsCompleted { get; set; }
+    public List<LearnerQuizRowDTO> Quizzes { get; set; } = [];
+}
+
+public class LearnerQuizRowDTO
+{
+    public int QuizId { get; set; }
+    public string QuizTitle { get; set; } = string.Empty;
+    public int LessonId { get; set; }
+    public int LessonNumber { get; set; }
+    public string LessonTitle { get; set; } = string.Empty;
+    public int AttemptsCount { get; set; }
+    public double? BestScorePercent { get; set; }
+    public bool Passed { get; set; }
+    public DateTime? LastAttemptUtc { get; set; }
+}
+
 public class AnalyticsDashboardDTO
 {
     public List<CourseAnalyticsDTO> Courses { get; set; } = [];

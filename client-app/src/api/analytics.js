@@ -22,6 +22,32 @@ export async function getAnalyticsDashboard() {
   return resp.json();
 }
 
+export async function getAnalyticsLearners() {
+  const resp = await fetch(`${BASE}/Analytics/learners`, { headers: authHeaders() });
+  if (!resp.ok) {
+    let msg = `Ошибка ${resp.status}`;
+    try {
+      const data = await resp.json();
+      msg = data.message || msg;
+    } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+  return resp.json();
+}
+
+export async function getAnalyticsLearnerDetail(userId) {
+  const resp = await fetch(`${BASE}/Analytics/learners/${userId}`, { headers: authHeaders() });
+  if (!resp.ok) {
+    let msg = `Ошибка ${resp.status}`;
+    try {
+      const data = await resp.json();
+      msg = data.message || msg;
+    } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+  return resp.json();
+}
+
 export async function downloadAnalyticsCsv() {
   const resp = await fetch(`${BASE}/Analytics/export`, { headers: authHeaders() });
   if (!resp.ok) {

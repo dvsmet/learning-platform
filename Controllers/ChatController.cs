@@ -30,6 +30,20 @@ namespace LearningPlatformAPI.Controllers
             return user == null ? (null, false, false) : (uid, user.IsAdmin, user.IsInstructor);
         }
 
+        private Task<bool> IsApprovedLearnerOnCourse(int learnerUserId, int courseId) =>
+            _context.Orders.AnyAsync(o => o.UserId == learnerUserId && o.Status == "approved" &&
+                o.OrderItems.Any(oi => oi.CourseId == courseId));
+
+        /// <summary>Инструктор курса или админ может вести переписку с записанным на курс обучающимся.</summary>
+        private async Task<bool> CanStaffAccessLearnerThread(int? staffId, bool isAdmin, int learnerUserId, int courseId)
+        {
+            if (staffId == null) return false;
+            if (!await IsApprovedLearnerOnCourse(learnerUserId, courseId)) return false;
+            if (isAdmin) return true;
+            var course = await _context.Courses.AsNoTracking().FirstOrDefaultAsync(c => c.Id == courseId);
+            return course != null && course.InstructorId == staffId;
+        }
+
         /// <summary>
         /// Список чат-потоков. Для пользователя — курсы с одобренным доступом.
         /// Для инструктора — сотрудники на его курсах.
@@ -44,8 +58,9 @@ namespace LearningPlatformAPI.Controllers
 
             if (isInstructor || isAdmin)
             {
-                var coursesQuery = _context.Courses.Include(c => c.Instructor)
-                    .Where(c => c.InstructorId == uid);
+                var coursesQuery = _context.Courses.Include(c => c.Instructor).AsQueryable();
+                if (!isAdmin)
+                    coursesQuery = coursesQuery.Where(c => c.InstructorId == uid);
 
                 var courses = await coursesQuery.ToListAsync();
                 var approvedPairs = await _context.Orders
@@ -150,11 +165,9 @@ namespace LearningPlatformAPI.Controllers
                     .AnyAsync(o => o.UserId == userId && o.Status == "approved" &&
                         o.OrderItems.Any(oi => oi.CourseId == courseId));
             }
-            else if (course.InstructorId == uid)
+            else
             {
-                hasAccess = await _context.Orders
-                    .AnyAsync(o => o.UserId == userId && o.Status == "approved" &&
-                        o.OrderItems.Any(oi => oi.CourseId == courseId));
+                hasAccess = await CanStaffAccessLearnerThread(uid, isAdmin, userId, courseId);
             }
 
             if (!hasAccess) return Forbid();
@@ -204,11 +217,9 @@ namespace LearningPlatformAPI.Controllers
                     .AnyAsync(o => o.UserId == userId && o.Status == "approved" &&
                         o.OrderItems.Any(oi => oi.CourseId == courseId));
             }
-            else if (course.InstructorId == uid)
+            else
             {
-                hasAccess = await _context.Orders
-                    .AnyAsync(o => o.UserId == userId && o.Status == "approved" &&
-                        o.OrderItems.Any(oi => oi.CourseId == courseId));
+                hasAccess = await CanStaffAccessLearnerThread(uid, isAdmin, userId, courseId);
             }
 
             if (!hasAccess) return Forbid();
@@ -256,11 +267,9 @@ namespace LearningPlatformAPI.Controllers
                     .AnyAsync(o => o.UserId == req.UserId && o.Status == "approved" &&
                         o.OrderItems.Any(oi => oi.CourseId == req.CourseId));
             }
-            else if (course.InstructorId == uid)
+            else
             {
-                hasAccess = await _context.Orders
-                    .AnyAsync(o => o.UserId == req.UserId && o.Status == "approved" &&
-                        o.OrderItems.Any(oi => oi.CourseId == req.CourseId));
+                hasAccess = await CanStaffAccessLearnerThread(uid, isAdmin, req.UserId, req.CourseId);
             }
 
             if (!hasAccess) return Forbid();
@@ -296,7 +305,7 @@ namespace LearningPlatformAPI.Controllers
         [HttpPut("messages/{id}")]
         public async Task<ActionResult<ChatMessageDTO>> UpdateMessage(int id, [FromBody] UpdateMessageRequest req)
         {
-            var (uid, _, _) = await GetCurrentUser();
+            var (uid, isAdmin, _) = await GetCurrentUser();
             if (uid == null) return Unauthorized();
 
             var msg = await _context.ChatMessages.Include(m => m.Sender).FirstOrDefaultAsync(m => m.Id == id);
@@ -306,7 +315,7 @@ namespace LearningPlatformAPI.Controllers
             var course = await _context.Courses.FindAsync(msg.CourseId);
             if (course == null) return NotFound();
 
-            var hasAccess = msg.UserId == uid || course.InstructorId == uid;
+            var hasAccess = msg.UserId == uid || await CanStaffAccessLearnerThread(uid, isAdmin, msg.UserId, msg.CourseId);
             if (!hasAccess) return Forbid();
 
             if (string.IsNullOrWhiteSpace(req.Text))
@@ -334,7 +343,7 @@ namespace LearningPlatformAPI.Controllers
         [HttpDelete("messages/{id}")]
         public async Task<IActionResult> DeleteMessage(int id, [FromQuery] bool forSelf = false)
         {
-            var (uid, _, _) = await GetCurrentUser();
+            var (uid, isAdmin, _) = await GetCurrentUser();
             if (uid == null) return Unauthorized();
 
             var msg = await _context.ChatMessages.FindAsync(id);
@@ -342,7 +351,7 @@ namespace LearningPlatformAPI.Controllers
 
             var course = await _context.Courses.FindAsync(msg.CourseId);
             if (course == null) return NotFound();
-            var hasAccess = msg.UserId == uid || course.InstructorId == uid;
+            var hasAccess = msg.UserId == uid || await CanStaffAccessLearnerThread(uid, isAdmin, msg.UserId, msg.CourseId);
             if (!hasAccess) return Forbid();
 
             // «Удалить у обоих» — только автор сообщения

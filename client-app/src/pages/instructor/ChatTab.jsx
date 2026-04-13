@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Box, Typography, List, ListItemButton, ListItemText, Paper,
   TextField, Button, CircularProgress, Alert, Divider,
@@ -10,6 +11,8 @@ import ChatMessageBubble from '../../components/ChatMessageBubble';
 const POLL_INTERVAL = 4000;
 
 export default function ChatTab() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [threads, setThreads] = useState([]);
   const [selected, setSelected] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -18,6 +21,7 @@ export default function ChatTab() {
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef(null);
+  const openedFromAnalyticsRef = useRef(false);
 
   const loadThreads = async () => {
     try {
@@ -37,7 +41,7 @@ export default function ChatTab() {
     return () => clearInterval(id);
   }, []);
 
-  const handleSelectThread = async (t) => {
+  const handleSelectThread = useCallback(async (t) => {
     setSelected(t);
     if (t?.hasUnread) {
       try {
@@ -51,7 +55,28 @@ export default function ChatTab() {
         );
       } catch { /* ignore */ }
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (loading || openedFromAnalyticsRef.current) return;
+    const st = location.state?.openChat;
+    if (st == null || st.userId == null || st.courseId == null) return;
+    openedFromAnalyticsRef.current = true;
+    const match = threads.find((th) => th.userId === st.userId && th.courseId === st.courseId);
+    const picked = match ?? {
+      userId: st.userId,
+      userName: st.userName || 'Обучающийся',
+      courseId: st.courseId,
+      courseTitle: st.courseTitle || 'Курс',
+      instructorId: st.instructorId,
+      instructorName: st.instructorName,
+      lastMessageAt: null,
+      lastMessagePreview: null,
+      hasUnread: false,
+    };
+    void handleSelectThread(picked);
+    navigate(location.pathname, { replace: true, state: {} });
+  }, [loading, threads, location.state, location.pathname, navigate, handleSelectThread]);
 
   const loadMessages = async () => {
     if (!selected) return;
@@ -121,12 +146,13 @@ export default function ChatTab() {
       <Typography variant="h5" gutterBottom>Чаты с сотрудниками</Typography>
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
-      {threads.length === 0 ? (
+      {threads.length === 0 && !selected ? (
         <Typography color="text.secondary">
           Нет чатов. Сотрудники появятся здесь после одобрения заявок на ваши курсы.
         </Typography>
       ) : (
         <Box sx={{ display: 'flex', gap: 2, height: 520 }}>
+          {threads.length > 0 && (
           <Paper sx={{ width: 280, overflow: 'auto', flexShrink: 0 }}>
             <List dense>
               {threads.map((t) => (
@@ -157,6 +183,7 @@ export default function ChatTab() {
               ))}
             </List>
           </Paper>
+          )}
 
           <Paper sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
             {selected ? (

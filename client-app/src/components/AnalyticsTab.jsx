@@ -1,18 +1,24 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Button, CircularProgress, Alert, TableSortLabel, Accordion, AccordionSummary, AccordionDetails,
-  Grid, LinearProgress, Chip,
+  Grid, LinearProgress, Chip, Dialog, DialogTitle, DialogContent, DialogActions,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DownloadIcon from '@mui/icons-material/Download';
 import BarChartIcon from '@mui/icons-material/BarChart';
-import { getAnalyticsDashboard, downloadAnalyticsCsv } from '../api/analytics';
+import MailOutlineIcon from '@mui/icons-material/MailOutline';
+import ChatIcon from '@mui/icons-material/Chat';
+import PersonSearchIcon from '@mui/icons-material/PersonSearch';
+import { getAnalyticsDashboard, getAnalyticsLearners, getAnalyticsLearnerDetail, downloadAnalyticsCsv } from '../api/analytics';
 
 const binLabels = ['0–9%', '10–19%', '20–29%', '30–39%', '40–49%', '50–59%', '60–69%', '70–79%', '80–89%', '90–100%'];
 
-export default function AnalyticsTab({ subtitle }) {
+export default function AnalyticsTab({ subtitle, chatPath }) {
+  const navigate = useNavigate();
   const [data, setData] = useState(null);
+  const [learnersPayload, setLearnersPayload] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [exporting, setExporting] = useState(false);
@@ -20,6 +26,12 @@ export default function AnalyticsTab({ subtitle }) {
   const [order, setOrder] = useState('desc');
   const [instructorOrderBy, setInstructorOrderBy] = useState('avgProgressPercentAcrossCourses');
   const [instructorOrder, setInstructorOrder] = useState('desc');
+  const [learnerOrderBy, setLearnerOrderBy] = useState('name');
+  const [learnerOrder, setLearnerOrder] = useState('asc');
+  const [learnerDialogOpen, setLearnerDialogOpen] = useState(false);
+  const [learnerDetailLoading, setLearnerDetailLoading] = useState(false);
+  const [learnerDetail, setLearnerDetail] = useState(null);
+  const [learnerDetailError, setLearnerDetailError] = useState('');
 
   const load = useCallback(async () => {
     setError('');
@@ -29,6 +41,13 @@ export default function AnalyticsTab({ subtitle }) {
       setData(d);
     } catch (e) {
       setError(e.message || 'Не удалось загрузить аналитику');
+      setData(null);
+    }
+    try {
+      const L = await getAnalyticsLearners();
+      setLearnersPayload(L);
+    } catch {
+      setLearnersPayload({ learners: [], passingScorePercent: 60 });
     } finally {
       setLoading(false);
     }
@@ -38,6 +57,8 @@ export default function AnalyticsTab({ subtitle }) {
 
   const courses = data?.courses ?? [];
   const instructors = data?.instructors;
+  const learners = learnersPayload?.learners ?? [];
+  const passingPct = learnersPayload?.passingScorePercent ?? 60;
 
   const kpis = useMemo(() => {
     if (!courses.length) return null;
@@ -79,6 +100,77 @@ export default function AnalyticsTab({ subtitle }) {
     });
     return list;
   }, [instructors, instructorOrderBy, instructorOrder]);
+
+  const sortedLearners = useMemo(() => {
+    const list = [...learners];
+    const mul = learnerOrder === 'asc' ? 1 : -1;
+    list.sort((a, b) => {
+      const va = a[learnerOrderBy];
+      const vb = b[learnerOrderBy];
+      if (va == null && vb == null) return 0;
+      if (va == null) return 1;
+      if (vb == null) return -1;
+      if (typeof va === 'string') return mul * String(va).localeCompare(String(vb), 'ru');
+      if (learnerOrderBy === 'lastQuizAttemptUtc') {
+        const ta = va ? new Date(va).getTime() : 0;
+        const tb = vb ? new Date(vb).getTime() : 0;
+        return mul * (ta - tb);
+      }
+      return mul * (va - vb);
+    });
+    return list;
+  }, [learners, learnerOrderBy, learnerOrder]);
+
+  const handleLearnerSort = (prop) => {
+    if (learnerOrderBy === prop) setLearnerOrder((o) => (o === 'asc' ? 'desc' : 'asc'));
+    else {
+      setLearnerOrderBy(prop);
+      setLearnerOrder(prop === 'name' || prop === 'email' ? 'asc' : 'desc');
+    }
+  };
+
+  const openLearnerDetail = async (userId) => {
+    setLearnerDetail(null);
+    setLearnerDetailError('');
+    setLearnerDialogOpen(true);
+    setLearnerDetailLoading(true);
+    try {
+      const d = await getAnalyticsLearnerDetail(userId);
+      setLearnerDetail(d);
+    } catch (e) {
+      setLearnerDetailError(e.message || 'Не удалось загрузить карточку');
+    } finally {
+      setLearnerDetailLoading(false);
+    }
+  };
+
+  const mailtoHref = (email, name) => {
+    const sub = encodeURIComponent(`Обучение: напоминание${name ? ` (${name})` : ''}`);
+    const body = encodeURIComponent('Здравствуйте!\n\n');
+    return `mailto:${email}?subject=${sub}&body=${body}`;
+  };
+
+  const openMailInNewTab = () => {
+    if (!learnerDetail?.email) return;
+    const url = mailtoHref(learnerDetail.email, learnerDetail.name);
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const openPlatformChat = () => {
+    if (!chatPath || !learnerDetail?.courses?.length) return;
+    const course = learnerDetail.courses[0];
+    setLearnerDialogOpen(false);
+    navigate(chatPath, {
+      state: {
+        openChat: {
+          userId: learnerDetail.userId,
+          userName: learnerDetail.name,
+          courseId: course.courseId,
+          courseTitle: course.courseTitle,
+        },
+      },
+    });
+  };
 
   const handleSort = (prop) => {
     if (orderBy === prop) setOrder((o) => (o === 'asc' ? 'desc' : 'asc'));
@@ -167,6 +259,185 @@ export default function AnalyticsTab({ subtitle }) {
           </Grid>
         </Grid>
       )}
+
+      {learners.length > 0 && (
+        <>
+          <Typography variant="h6" gutterBottom sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+            <PersonSearchIcon color="primary" fontSize="small" />
+            Обучающиеся
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Пользователи с одобренной записью на курсы в этой выборке. Тест считается сданным, если лучшая попытка даёт не ниже{' '}
+            <strong>{passingPct}%</strong> от максимального балла. Данные по тестам и датам — в детализации и в CSV.
+          </Typography>
+          <TableContainer component={Paper} sx={{ mb: 3 }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell sortDirection={learnerOrderBy === 'name' ? learnerOrder : false}>
+                    <TableSortLabel active={learnerOrderBy === 'name'} direction={learnerOrderBy === 'name' ? learnerOrder : 'asc'} onClick={() => handleLearnerSort('name')}>
+                      Имя
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell sortDirection={learnerOrderBy === 'email' ? learnerOrder : false}>
+                    <TableSortLabel active={learnerOrderBy === 'email'} direction={learnerOrderBy === 'email' ? learnerOrder : 'asc'} onClick={() => handleLearnerSort('email')}>
+                      Email
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell align="right" sortDirection={learnerOrderBy === 'enrolledCoursesCount' ? learnerOrder : false}>
+                    <TableSortLabel active={learnerOrderBy === 'enrolledCoursesCount'} direction={learnerOrderBy === 'enrolledCoursesCount' ? learnerOrder : 'asc'} onClick={() => handleLearnerSort('enrolledCoursesCount')}>
+                      Курсов
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell align="right" sortDirection={learnerOrderBy === 'avgProgressPercent' ? learnerOrder : false}>
+                    <TableSortLabel active={learnerOrderBy === 'avgProgressPercent'} direction={learnerOrderBy === 'avgProgressPercent' ? learnerOrder : 'asc'} onClick={() => handleLearnerSort('avgProgressPercent')}>
+                      Ср. прогресс, %
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell align="right" sortDirection={learnerOrderBy === 'quizzesTotal' ? learnerOrder : false}>
+                    <TableSortLabel active={learnerOrderBy === 'quizzesTotal'} direction={learnerOrderBy === 'quizzesTotal' ? learnerOrder : 'asc'} onClick={() => handleLearnerSort('quizzesTotal')}>
+                      Тестов всего
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell align="right" sortDirection={learnerOrderBy === 'quizzesAttempted' ? learnerOrder : false}>
+                    <TableSortLabel active={learnerOrderBy === 'quizzesAttempted'} direction={learnerOrderBy === 'quizzesAttempted' ? learnerOrder : 'asc'} onClick={() => handleLearnerSort('quizzesAttempted')}>
+                      С попытками
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell align="right" sortDirection={learnerOrderBy === 'quizzesPassed' ? learnerOrder : false}>
+                    <TableSortLabel active={learnerOrderBy === 'quizzesPassed'} direction={learnerOrderBy === 'quizzesPassed' ? learnerOrder : 'asc'} onClick={() => handleLearnerSort('quizzesPassed')}>
+                      Сдано (≥{passingPct}%)
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell sortDirection={learnerOrderBy === 'lastQuizAttemptUtc' ? learnerOrder : false}>
+                    <TableSortLabel active={learnerOrderBy === 'lastQuizAttemptUtc'} direction={learnerOrderBy === 'lastQuizAttemptUtc' ? learnerOrder : 'asc'} onClick={() => handleLearnerSort('lastQuizAttemptUtc')}>
+                      Последняя попытка
+                    </TableSortLabel>
+                  </TableCell>
+                  <TableCell align="right">Действия</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {sortedLearners.map((row) => (
+                  <TableRow key={row.userId} hover>
+                    <TableCell>{row.name}</TableCell>
+                    <TableCell>{row.email}</TableCell>
+                    <TableCell align="right">{row.enrolledCoursesCount}</TableCell>
+                    <TableCell align="right">{row.avgProgressPercent}</TableCell>
+                    <TableCell align="right">{row.quizzesTotal}</TableCell>
+                    <TableCell align="right">{row.quizzesAttempted}</TableCell>
+                    <TableCell align="right">{row.quizzesPassed}</TableCell>
+                    <TableCell>
+                      {row.lastQuizAttemptUtc
+                        ? new Date(row.lastQuizAttemptUtc).toLocaleString('ru-RU')
+                        : '—'}
+                    </TableCell>
+                    <TableCell align="right">
+                      <Button size="small" onClick={() => openLearnerDetail(row.userId)}>
+                        Подробнее
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </>
+      )}
+
+      <Dialog open={learnerDialogOpen} onClose={() => setLearnerDialogOpen(false)} maxWidth="md" fullWidth scroll="paper">
+        <DialogTitle>
+          {learnerDetail ? `${learnerDetail.name} — тесты и прогресс` : 'Карточка обучающегося'}
+        </DialogTitle>
+        <DialogContent dividers>
+          {learnerDetailLoading && (
+            <Box display="flex" justifyContent="center" py={4}>
+              <CircularProgress size={32} />
+            </Box>
+          )}
+          {learnerDetailError && <Alert severity="error">{learnerDetailError}</Alert>}
+          {learnerDetail && !learnerDetailLoading && (
+            <>
+              <Typography variant="body2" color="text.secondary" gutterBottom>
+                {learnerDetail.email}
+                {' · '}
+                зачёт по тесту при лучшем результате ≥ {learnerDetail.passingScorePercent}%
+              </Typography>
+              {learnerDetail.courses?.length > 1 && (
+                <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+                  Несколько курсов: «Написать на платформе» откроет чат в контексте первого курса в списке (по названию). Остальные потоки — в разделе «Чаты».
+                </Typography>
+              )}
+              {learnerDetail.courses?.map((c) => (
+                <Box key={c.courseId} sx={{ mb: 3 }}>
+                  <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                    {c.courseTitle}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                    Прогресс по урокам: {c.progressPercent}% ({c.lessonsCompleted} / {c.lessonsTotal} завершено)
+                    {c.allLessonsCompleted ? (
+                      <Chip size="small" label="Все уроки завершены" color="success" sx={{ ml: 1 }} />
+                    ) : null}
+                  </Typography>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Урок</TableCell>
+                        <TableCell>Тест</TableCell>
+                        <TableCell align="right">Попыток</TableCell>
+                        <TableCell align="right">Лучший, %</TableCell>
+                        <TableCell>Статус</TableCell>
+                        <TableCell>Последняя попытка</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {(c.quizzes ?? []).map((q) => (
+                        <TableRow key={q.quizId}>
+                          <TableCell>
+                            <Typography variant="body2">
+                              №{q.lessonNumber} {q.lessonTitle}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>{q.quizTitle}</TableCell>
+                          <TableCell align="right">{q.attemptsCount}</TableCell>
+                          <TableCell align="right">{q.bestScorePercent != null ? `${q.bestScorePercent}%` : '—'}</TableCell>
+                          <TableCell>
+                            {q.attemptsCount === 0 && <Chip size="small" label="Не начат" />}
+                            {q.attemptsCount > 0 && q.passed && <Chip size="small" label="Сдан" color="success" />}
+                            {q.attemptsCount > 0 && !q.passed && <Chip size="small" label="Не сдан" color="warning" />}
+                          </TableCell>
+                          <TableCell>
+                            {q.lastAttemptUtc ? new Date(q.lastAttemptUtc).toLocaleString('ru-RU') : '—'}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </Box>
+              ))}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ flexWrap: 'wrap', gap: 1 }}>
+          <Button
+            startIcon={<MailOutlineIcon />}
+            onClick={openMailInNewTab}
+            disabled={!learnerDetail?.email}
+          >
+            Написать на почту
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<ChatIcon />}
+            onClick={openPlatformChat}
+            disabled={!chatPath || !learnerDetail?.courses?.length}
+          >
+            Написать на платформе
+          </Button>
+          <Box sx={{ flexGrow: 1 }} />
+          <Button variant="contained" onClick={() => setLearnerDialogOpen(false)}>Закрыть</Button>
+        </DialogActions>
+      </Dialog>
 
       {courses.length === 0 && !error && (
         <Typography color="text.secondary">Нет курсов для отображения.</Typography>
