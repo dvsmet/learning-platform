@@ -23,6 +23,8 @@ export default function ChatTab() {
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef(null);
+  /** Чтобы не сбрасывать выбор при открытии чата с карточки курса, пока в списке ещё нет видимых сообщений. */
+  const selectedHadVisibleThreadRef = useRef(false);
 
   const loadThreads = async () => {
     try {
@@ -43,6 +45,24 @@ export default function ChatTab() {
   }, []);
 
   const threadsWithMessages = allThreads.filter((t) => t.lastMessageAt != null);
+
+  useEffect(() => {
+    if (!selected) {
+      selectedHadVisibleThreadRef.current = false;
+      return;
+    }
+    const visibleInList = allThreads.some(
+      (t) =>
+        t.lastMessageAt != null &&
+        t.userId === selected.userId &&
+        t.courseId === selected.courseId
+    );
+    if (visibleInList) selectedHadVisibleThreadRef.current = true;
+    else if (selectedHadVisibleThreadRef.current) {
+      setSelected(null);
+      selectedHadVisibleThreadRef.current = false;
+    }
+  }, [allThreads, selected]);
 
   useEffect(() => {
     const state = location.state;

@@ -54,6 +54,11 @@ namespace LearningPlatformAPI.Controllers
             var (uid, isAdmin, isInstructor) = await GetCurrentUser();
             if (uid == null) return Unauthorized();
 
+            var hiddenForReader = await _context.ChatMessageHiddens.AsNoTracking()
+                .Where(h => h.UserId == uid)
+                .Select(h => h.MessageId)
+                .ToHashSetAsync();
+
             var threads = new List<ChatThreadDTO>();
 
             if (isInstructor || isAdmin)
@@ -83,7 +88,7 @@ namespace LearningPlatformAPI.Controllers
                     {
                         if (!users.TryGetValue(learnerId, out var learner)) continue;
                         var last = await _context.ChatMessages
-                            .Where(m => m.UserId == learnerId && m.CourseId == c.Id)
+                            .Where(m => m.UserId == learnerId && m.CourseId == c.Id && !hiddenForReader.Contains(m.Id))
                             .OrderByDescending(m => m.SentAt)
                             .FirstOrDefaultAsync();
                         var hasUnread = last != null && last.SenderId != uid &&
@@ -123,7 +128,7 @@ namespace LearningPlatformAPI.Controllers
                 foreach (var c in courses)
                 {
                     var last = await _context.ChatMessages
-                        .Where(m => m.UserId == uid && m.CourseId == c.Id)
+                        .Where(m => m.UserId == uid && m.CourseId == c.Id && !hiddenForReader.Contains(m.Id))
                         .OrderByDescending(m => m.SentAt)
                         .FirstOrDefaultAsync();
                     var hasUnread = last != null && last.SenderId != uid &&
