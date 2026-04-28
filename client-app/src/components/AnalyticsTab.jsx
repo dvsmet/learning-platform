@@ -4,6 +4,8 @@ import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Button, CircularProgress, Alert, TableSortLabel, Accordion, AccordionSummary, AccordionDetails,
   Grid, LinearProgress, Chip, Dialog, DialogTitle, DialogContent, DialogActions,
+  FormControl, InputLabel, Select, MenuItem,
+  TextField,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DownloadIcon from '@mui/icons-material/Download';
@@ -15,6 +17,26 @@ import { useAuth } from '../context/AuthContext';
 
 const binLabels = ['0–9%', '10–19%', '20–29%', '30–39%', '40–49%', '50–59%', '60–69%', '70–79%', '80–89%', '90–100%'];
 
+function formatUtcYmd(d) {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function utcRangePresetLast30Days() {
+  const now = new Date();
+  const endUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const from = new Date(endUtc - 29 * 86400000);
+  return { fromYmd: formatUtcYmd(from), toYmd: formatUtcYmd(new Date(endUtc)) };
+}
+
+function formatYmdRu(ymd) {
+  if (!ymd || ymd.length < 10) return '';
+  const [y, m, d] = ymd.split('-');
+  return `${d}.${m}.${y}`;
+}
+
 export default function AnalyticsTab({ subtitle, chatPath }) {
   const navigate = useNavigate();
   const { user: authUser } = useAuth();
@@ -23,6 +45,12 @@ export default function AnalyticsTab({ subtitle, chatPath }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [exporting, setExporting] = useState(false);
+  const [exportPreset, setExportPreset] = useState('all');
+  const [customRangeOpen, setCustomRangeOpen] = useState(false);
+  const [customFromYmd, setCustomFromYmd] = useState('');
+  const [customToYmd, setCustomToYmd] = useState('');
+  const [appliedCustomFromYmd, setAppliedCustomFromYmd] = useState('');
+  const [appliedCustomToYmd, setAppliedCustomToYmd] = useState('');
   const [orderBy, setOrderBy] = useState('enrolledCount');
   const [order, setOrder] = useState('desc');
   const [instructorOrderBy, setInstructorOrderBy] = useState('avgProgressPercentAcrossCourses');
@@ -206,10 +234,47 @@ export default function AnalyticsTab({ subtitle, chatPath }) {
     }
   };
 
+  const openCustomRangeDialog = useCallback(() => {
+    const next = appliedCustomFromYmd && appliedCustomToYmd
+      ? { fromYmd: appliedCustomFromYmd, toYmd: appliedCustomToYmd }
+      : utcRangePresetLast30Days();
+    setCustomFromYmd(next.fromYmd);
+    setCustomToYmd(next.toYmd);
+    setCustomRangeOpen(true);
+  }, [appliedCustomFromYmd, appliedCustomToYmd]);
+
+  const handleApplyCustomRange = () => {
+    if (!customFromYmd || !customToYmd) {
+      setError('Укажите обе даты периода.');
+      return;
+    }
+    if (customFromYmd > customToYmd) {
+      setError('Дата начала не может быть позже даты окончания.');
+      return;
+    }
+    setAppliedCustomFromYmd(customFromYmd);
+    setAppliedCustomToYmd(customToYmd);
+    setError('');
+    setCustomRangeOpen(false);
+  };
+
   const handleExport = async () => {
     setExporting(true);
     try {
-      await downloadAnalyticsExcel();
+      if (exportPreset === 'custom') {
+        if (!appliedCustomFromYmd || !appliedCustomToYmd) {
+          openCustomRangeDialog();
+          return;
+        }
+        await downloadAnalyticsExcel({
+          fromUtc: `${appliedCustomFromYmd}T00:00:00.000Z`,
+          toUtc: `${appliedCustomToYmd}T00:00:00.000Z`,
+        });
+        return;
+      }
+      await downloadAnalyticsExcel({
+        preset: exportPreset === 'all' ? undefined : exportPreset,
+      });
     } catch (e) {
       setError(e.message || 'Ошибка выгрузки');
     } finally {
@@ -232,10 +297,77 @@ export default function AnalyticsTab({ subtitle, chatPath }) {
           <BarChartIcon color="primary" />
           <Typography variant="h5">Аналитика</Typography>
         </Box>
-        <Button variant="outlined" startIcon={<DownloadIcon />} onClick={handleExport} disabled={exporting}>
-          {exporting ? 'Выгрузка…' : 'Выгрузить в Excel'}
-        </Button>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+          <FormControl size="small" sx={{ minWidth: 240 }}>
+            <InputLabel id="analytics-export-period-label">Период выгрузки</InputLabel>
+            <Select
+              labelId="analytics-export-period-label"
+              label="Период выгрузки"
+              value={exportPreset}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === 'custom') {
+                  setExportPreset('custom');
+                  openCustomRangeDialog();
+                  return;
+                }
+                setExportPreset(v);
+              }}
+              renderValue={(v) => {
+                if (v === 'custom' && appliedCustomFromYmd && appliedCustomToYmd) {
+                  return `Свои даты: ${formatYmdRu(appliedCustomFromYmd)} — ${formatYmdRu(appliedCustomToYmd)}`;
+                }
+                if (v === 'custom') return 'Свои даты…';
+                if (v === 'all') return 'Всё время';
+                if (v === 'week') return 'Последние 7 дней';
+                if (v === 'month') return 'Последние 30 дней';
+                if (v === 'year') return 'Последний год';
+                return v;
+              }}
+            >
+              <MenuItem value="all">Всё время</MenuItem>
+              <MenuItem value="week">Последние 7 дней</MenuItem>
+              <MenuItem value="month">Последние 30 дней</MenuItem>
+              <MenuItem value="year">Последний год</MenuItem>
+              <MenuItem value="custom">Свои даты…</MenuItem>
+            </Select>
+          </FormControl>
+          <Button variant="outlined" startIcon={<DownloadIcon />} onClick={handleExport} disabled={exporting}>
+            {exporting ? 'Выгрузка…' : 'Выгрузить в Excel'}
+          </Button>
+        </Box>
       </Box>
+
+      <Dialog open={customRangeOpen} onClose={() => setCustomRangeOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Период выгрузки</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Укажите начало и последний календарный день интервала. Отчёт строится от 00:00 начальной даты до 00:00 дня после выбранного конца.
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <TextField
+              label="С"
+              type="date"
+              value={customFromYmd}
+              onChange={(e) => setCustomFromYmd(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              sx={{ minWidth: 180 }}
+            />
+            <TextField
+              label="По включительно"
+              type="date"
+              value={customToYmd}
+              onChange={(e) => setCustomToYmd(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              sx={{ minWidth: 180 }}
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCustomRangeOpen(false)}>Отмена</Button>
+          <Button variant="contained" onClick={handleApplyCustomRange}>Готово</Button>
+        </DialogActions>
+      </Dialog>
       {subtitle && (
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           {subtitle}

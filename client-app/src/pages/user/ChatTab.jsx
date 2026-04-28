@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Box, Typography, List, ListItemButton, ListItemText, Paper,
-  TextField, Button, CircularProgress, Alert, Divider,
+  TextField, Button, CircularProgress, Alert, Divider, InputAdornment,
 } from '@mui/material';
+import SearchIcon from '@mui/icons-material/Search';
 import SendIcon from '@mui/icons-material/Send';
 import { getChatThreads, getChatMessages, sendChatMessage, markChatRead } from '../../api/chat';
 import ChatMessageBubble from '../../components/ChatMessageBubble';
@@ -19,6 +20,7 @@ export default function ChatTab() {
   const [selected, setSelected] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
+  const [threadSearch, setThreadSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
@@ -44,7 +46,19 @@ export default function ChatTab() {
     return () => clearInterval(id);
   }, []);
 
-  const threadsWithMessages = allThreads.filter((t) => t.lastMessageAt != null);
+  const threadsWithMessages = useMemo(
+    () => allThreads.filter((t) => t.lastMessageAt != null),
+    [allThreads]
+  );
+
+  const visibleThreads = useMemo(() => {
+    const q = threadSearch.trim().toLowerCase();
+    if (!q) return threadsWithMessages;
+    return threadsWithMessages.filter((t) => {
+      const hay = `${t.courseTitle ?? ''} ${t.instructorName ?? ''}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [threadsWithMessages, threadSearch]);
 
   useEffect(() => {
     if (!selected) {
@@ -175,9 +189,33 @@ export default function ChatTab() {
         </Typography>
       ) : (
         <Box sx={{ display: 'flex', gap: 2, height: 520 }}>
-          <Paper sx={{ width: 280, overflow: 'auto', flexShrink: 0 }}>
-            <List dense>
-              {threadsWithMessages.map((t) => (
+          <Paper sx={{ width: 280, overflow: 'hidden', flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
+            <Box sx={{ p: 1, flexShrink: 0, borderBottom: 1, borderColor: 'divider' }}>
+              <TextField
+                size="small"
+                fullWidth
+                placeholder="Поиск по имени инструктора или курсу"
+                value={threadSearch}
+                onChange={(e) => setThreadSearch(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+                aria-label="Поиск переписки по инструктору или курсу"
+              />
+            </Box>
+            <List dense sx={{ flex: 1, overflow: 'auto' }}>
+              {visibleThreads.length === 0 ? (
+                <Typography variant="body2" color="text.secondary" sx={{ px: 2, py: 1 }}>
+                  {threadsWithMessages.length === 0
+                    ? 'Нет чатов с сообщениями'
+                    : 'Совпадений нет — попробуйте другую строку поиска'}
+                </Typography>
+              ) : (
+              visibleThreads.map((t) => (
                 <ListItemButton
                   key={`${t.userId}-${t.courseId}`}
                   selected={selected?.userId === t.userId && selected?.courseId === t.courseId}
@@ -202,7 +240,8 @@ export default function ChatTab() {
                     />
                   </Box>
                 </ListItemButton>
-              ))}
+              ))
+              )}
             </List>
           </Paper>
 

@@ -46,8 +46,13 @@ export default function ProgressTab() {
         allQuizzes.forEach((q) => { quizByLesson[q.lessonId] = q; });
 
         const myResults = allResults.filter((r) => r.userId === user.id);
-        const resultByQuiz = {};
-        myResults.forEach((r) => { resultByQuiz[r.quizId] = r; });
+        const maxScoreByQuizId = {};
+        myResults.forEach((r) => {
+          const qid = r.quizId;
+          const s = typeof r.score === 'number' ? r.score : 0;
+          if (maxScoreByQuizId[qid] === undefined || s > maxScoreByQuizId[qid])
+            maxScoreByQuizId[qid] = s;
+        });
 
         const groups = {};
         myProgress.forEach((p) => {
@@ -57,13 +62,13 @@ export default function ProgressTab() {
           if (!groups[cId]) groups[cId] = [];
 
           const quiz = quizByLesson[p.lessonId];
-          const result = quiz ? resultByQuiz[quiz.id] : null;
+          const quizScore = quiz ? maxScoreByQuizId[quiz.id] ?? null : null;
 
           groups[cId].push({
             lessonNumber: lesson.lessonNumber,
             lessonTitle: lesson.title,
             status: p.status,
-            quizScore: result ? result.score : null,
+            quizScore,
           });
         });
 

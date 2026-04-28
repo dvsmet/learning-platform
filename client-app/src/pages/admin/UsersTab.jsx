@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box, Button, Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, Checkbox, FormControlLabel, Alert, IconButton,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Paper, CircularProgress, Typography, InputAdornment,
+  FormControl, Select, MenuItem,
 } from '@mui/material';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
@@ -27,6 +28,11 @@ export default function UsersTab() {
   const [tempPassword, setTempPassword] = useState('');
   const [tempDialogOpen, setTempDialogOpen] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [filterId, setFilterId] = useState('');
+  const [filterName, setFilterName] = useState('');
+  const [filterEmail, setFilterEmail] = useState('');
+  const [filterRole, setFilterRole] = useState('');
+  const [filterRegistration, setFilterRegistration] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -112,13 +118,59 @@ export default function UsersTab() {
   const roleName = (u) =>
     u.isAdmin ? 'Админ' : u.isInstructor ? 'Инструктор' : 'Пользователь';
 
+  const normalized = (s) => (s || '').trim().toLowerCase();
+
+  const filteredUsers = useMemo(() => {
+    return users.filter((u) => {
+      const idStr = filterId.trim();
+      if (idStr && !String(u.id).includes(idStr)) return false;
+      if (normalized(filterName) && !normalized(u.name).includes(normalized(filterName))) return false;
+      if (normalized(filterEmail) && !normalized(u.email).includes(normalized(filterEmail))) return false;
+      if (filterRole === 'admin' && !u.isAdmin) return false;
+      if (filterRole === 'instructor' && (u.isAdmin || !u.isInstructor)) return false;
+      if (filterRole === 'user' && (u.isAdmin || u.isInstructor)) return false;
+      const regQ = normalized(filterRegistration);
+      if (regQ) {
+        const dRu = new Date(u.registrationDate).toLocaleDateString('ru-RU').toLowerCase();
+        const raw = String(u.registrationDate || '').toLowerCase();
+        if (!dRu.includes(regQ) && !raw.includes(regQ)) return false;
+      }
+      return true;
+    });
+  }, [users, filterId, filterName, filterEmail, filterRole, filterRegistration]);
+
+  const clearFilters = () => {
+    setFilterId('');
+    setFilterName('');
+    setFilterEmail('');
+    setFilterRole('');
+    setFilterRegistration('');
+  };
+
+  const hasActiveFilters =
+    filterId.trim() ||
+    normalized(filterName) ||
+    normalized(filterEmail) ||
+    filterRole ||
+    normalized(filterRegistration);
+
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}><CircularProgress /></Box>;
 
   return (
     <Box>
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
-      <Button variant="contained" sx={{ mb: 2 }} onClick={openCreate}>Добавить</Button>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap' }}>
+        <Button variant="contained" onClick={openCreate}>Добавить</Button>
+        {hasActiveFilters && (
+          <Button variant="text" size="small" onClick={clearFilters}>
+            Сбросить фильтры
+          </Button>
+        )}
+        <Typography variant="body2" color="text.secondary">
+          Показано: {filteredUsers.length} из {users.length}
+        </Typography>
+      </Box>
 
       <TableContainer component={Paper}>
         <Table size="small">
@@ -131,9 +183,82 @@ export default function UsersTab() {
               <TableCell>Дата регистрации</TableCell>
               <TableCell>Действия</TableCell>
             </TableRow>
+            <TableRow sx={{ '& .MuiTableCell-root': { pt: 0.5, pb: 1, borderBottomWidth: 1 } }}>
+              <TableCell sx={{ verticalAlign: 'bottom', minWidth: 72 }}>
+                <TextField
+                  size="small"
+                  fullWidth
+                  placeholder="Фильтр ID"
+                  value={filterId}
+                  onChange={(e) => setFilterId(e.target.value)}
+                  aria-label="Фильтр по ID"
+                />
+              </TableCell>
+              <TableCell sx={{ verticalAlign: 'bottom', minWidth: 110 }}>
+                <TextField
+                  size="small"
+                  fullWidth
+                  placeholder="Фильтр по имени"
+                  value={filterName}
+                  onChange={(e) => setFilterName(e.target.value)}
+                  aria-label="Фильтр по имени"
+                />
+              </TableCell>
+              <TableCell sx={{ verticalAlign: 'bottom', minWidth: 140 }}>
+                <TextField
+                  size="small"
+                  fullWidth
+                  placeholder="Фильтр по email"
+                  value={filterEmail}
+                  onChange={(e) => setFilterEmail(e.target.value)}
+                  aria-label="Фильтр по email"
+                />
+              </TableCell>
+              <TableCell sx={{ verticalAlign: 'bottom', minWidth: 130 }}>
+                <FormControl size="small" fullWidth>
+                  <Select
+                    value={filterRole}
+                    onChange={(e) => setFilterRole(e.target.value)}
+                    displayEmpty
+                    aria-label="Фильтр по роли"
+                    renderValue={(v) => {
+                      if (!v) return 'Все роли';
+                      if (v === 'admin') return 'Админ';
+                      if (v === 'instructor') return 'Инструктор';
+                      return 'Пользователь';
+                    }}
+                  >
+                    <MenuItem value="">Все роли</MenuItem>
+                    <MenuItem value="admin">Админ</MenuItem>
+                    <MenuItem value="instructor">Инструктор</MenuItem>
+                    <MenuItem value="user">Пользователь</MenuItem>
+                  </Select>
+                </FormControl>
+              </TableCell>
+              <TableCell sx={{ verticalAlign: 'bottom', minWidth: 120 }}>
+                <TextField
+                  size="small"
+                  fullWidth
+                  placeholder="Фильтр даты"
+                  value={filterRegistration}
+                  onChange={(e) => setFilterRegistration(e.target.value)}
+                  aria-label="Фильтр по дате регистрации"
+                />
+              </TableCell>
+              <TableCell />
+            </TableRow>
           </TableHead>
           <TableBody>
-            {users.map((u) => (
+            {filteredUsers.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} align="center">
+                  <Typography color="text.secondary" sx={{ py: 2 }}>
+                    {users.length === 0 ? 'Нет пользователей' : 'Нет записей по выбранным фильтрам'}
+                  </Typography>
+                </TableCell>
+              </TableRow>
+            ) : (
+              filteredUsers.map((u) => (
               <TableRow key={u.id}>
                 <TableCell>{u.id}</TableCell>
                 <TableCell>{u.name}</TableCell>
@@ -152,7 +277,8 @@ export default function UsersTab() {
                   </IconButton>
                 </TableCell>
               </TableRow>
-            ))}
+              ))
+            )}
           </TableBody>
         </Table>
       </TableContainer>

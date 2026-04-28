@@ -48,8 +48,14 @@ export async function getAnalyticsLearnerDetail(userId) {
   return resp.json();
 }
 
-export async function downloadAnalyticsExcel() {
-  const resp = await fetch(`${BASE}/Analytics/export`, { headers: authHeaders() });
+export async function downloadAnalyticsExcel(opts = {}) {
+  const { preset, fromUtc, toUtc } = opts;
+  const params = new URLSearchParams();
+  if (preset) params.set('preset', preset);
+  if (fromUtc) params.set('fromUtc', fromUtc);
+  if (toUtc) params.set('toUtc', toUtc);
+  const qs = params.toString();
+  const resp = await fetch(`${BASE}/Analytics/export${qs ? `?${qs}` : ''}`, { headers: authHeaders() });
   if (!resp.ok) {
     let msg = `Ошибка ${resp.status}`;
     try {
