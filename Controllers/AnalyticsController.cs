@@ -253,20 +253,61 @@ public class AnalyticsController : ControllerBase
         return Ok(BuildDashboardFromScope(scope));
     }
 
-    /// <summary>Список обучающихся с одобренной записью на курсы в зоне видимости (все курсы для админа, свои — для инструктора).</summary>
+    /// <summary>Список обучающихся с одобренной записью на курсы в зоне видимости. Параметры preset/fromUtc/toUtc — как у export; без них — весь период.</summary>
     [HttpGet("learners")]
     [ProducesResponseType(typeof(LearnerAnalyticsListDTO), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetLearners()
+    public async Task<IActionResult> GetLearners(
+        [FromQuery] string? preset = null,
+        [FromQuery] DateTime? fromUtc = null,
+        [FromQuery] DateTime? toUtc = null)
     {
         var (scope, error) = await TryLoadScopeForCurrentUserAsync();
         if (error != null) return error;
         if (scope == null) return Unauthorized();
-        var list = await BuildLearnerSummariesAsync(scope);
+
+        var parseErr = TryParsePeriodicRange(preset, fromUtc, toUtc, out var period);
+        if (parseErr != null) return parseErr;
+
+        var list = period == null
+            ? await BuildLearnerSummariesAsync(scope)
+            : await BuildLearnerSummariesForPeriodAsync(scope, period);
         return Ok(new LearnerAnalyticsListDTO
         {
             PassingScorePercent = DefaultPassingScorePercent,
-            Learners = list
+            Learners = list,
+            PeriodKind = MapLearnersPeriodKind(preset, fromUtc, toUtc, period),
+            EffectiveFromYmd = MapEffectiveFromYmd(period),
+            EffectiveToYmdInclusive = MapEffectiveToYmdInclusive(period)
         });
+    }
+
+    private static string? MapEffectiveFromYmd(PeriodicRangeUtc? period)
+    {
+        if (period == null) return null;
+        return period.FromInclusiveUtc.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static string? MapEffectiveToYmdInclusive(PeriodicRangeUtc? period)
+    {
+        if (period == null) return null;
+        var lastInclusive = period.ToExclusiveUtc.AddDays(-1);
+        return lastInclusive.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>week/month/year — по preset; range — если задана пара дат; иначе all.</summary>
+    private static string MapLearnersPeriodKind(string? preset, DateTime? fromUtc, DateTime? toUtc,
+        PeriodicRangeUtc? period)
+    {
+        if (period == null) return "all";
+        if (fromUtc.HasValue && toUtc.HasValue) return "range";
+        var pt = preset?.Trim().ToLowerInvariant() ?? "";
+        return pt switch
+        {
+            "week" => "week",
+            "month" => "month",
+            "year" => "year",
+            _ => "all"
+        };
     }
 
     /// <summary>Детализация по обучающемуся: прогресс и статус каждого теста.</summary>
@@ -380,6 +421,29 @@ public class AnalyticsController : ControllerBase
         var courseProgresses = scope.ProgressesByCourse.GetValueOrDefault(course.Id) ?? [];
         var doneLessons = courseProgresses
             .Where(p => p.UserId == userId && IsStatus(p.Status, "completed"))
+            .Select(p => p.LessonId)
+            .Distinct()
+            .Count();
+        return doneLessons * 100.0 / lessonsTotal;
+    }
+
+    /// <summary>
+    /// % уроков курса, у которых статус «completed» и LessonProgress.LastUpdated попадает в выбранный период.
+    /// Используется для аналитики обучающихся за интервал.
+    /// </summary>
+    private static double ComputeUserCourseProgressPercentForPeriod(
+        AnalyticsScope scope, int userId, Course course, PeriodicRangeUtc period)
+    {
+        var lessonsTotal = course.Lessons.Count;
+        if (lessonsTotal == 0) return 0;
+        if (!scope.EnrollmentsByCourse.TryGetValue(course.Id, out var enrolled) || !enrolled.Contains(userId))
+            return 0;
+        var courseProgresses = scope.ProgressesByCourse.GetValueOrDefault(course.Id) ?? [];
+        var doneLessons = courseProgresses
+            .Where(p => p.UserId == userId
+                        && IsStatus(p.Status, "completed")
+                        && p.LastUpdatedUtc >= period.FromInclusiveUtc
+                        && p.LastUpdatedUtc < period.ToExclusiveUtc)
             .Select(p => p.LessonId)
             .Distinct()
             .Count();
@@ -734,7 +798,7 @@ public class AnalyticsController : ControllerBase
                 {
                     var course = scope.Courses.FirstOrDefault(c => c.Id == cid);
                     if (course == null) continue;
-                    sum += ComputeUserCourseProgressPercent(scope, uid, course);
+                    sum += ComputeUserCourseProgressPercentForPeriod(scope, uid, course, period);
                 }
 
                 avgProg = sum / courseIdsForAvg.Count;

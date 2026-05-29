@@ -22,8 +22,17 @@ export async function getAnalyticsDashboard() {
   return resp.json();
 }
 
-export async function getAnalyticsLearners() {
-  const resp = await fetch(`${BASE}/Analytics/learners`, { headers: authHeaders() });
+export async function getAnalyticsLearners(opts = {}) {
+  const { preset, fromUtc, toUtc } = opts;
+  const params = new URLSearchParams();
+  if (preset) params.set('preset', preset);
+  if (fromUtc) params.set('fromUtc', fromUtc);
+  if (toUtc) params.set('toUtc', toUtc);
+  const qs = params.toString();
+  const resp = await fetch(`${BASE}/Analytics/learners${qs ? `?${qs}` : ''}`, {
+    headers: authHeaders(),
+    cache: 'no-store',
+  });
   if (!resp.ok) {
     let msg = `Ошибка ${resp.status}`;
     try {

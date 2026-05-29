@@ -6,6 +6,15 @@ public class LearnerAnalyticsListDTO
     /// <summary>Порог в процентах от max балла теста: лучшая попытка ≥ этого значения считается «сдано».</summary>
     public int PassingScorePercent { get; set; }
     public List<LearnerAnalyticsSummaryDTO> Learners { get; set; } = [];
+
+    /// <summary>Какой режим периода применён на сервере (эхо запроса).</summary>
+    public string? PeriodKind { get; set; }
+
+    /// <summary>Первый день периода (UTC, календарная дата yyyy-MM-dd).</summary>
+    public string? EffectiveFromYmd { get; set; }
+
+    /// <summary>Последний день периода включительно (UTC, yyyy-MM-dd).</summary>
+    public string? EffectiveToYmdInclusive { get; set; }
 }
 
 public class LearnerAnalyticsSummaryDTO

@@ -14,6 +14,7 @@ import MailOutlineIcon from '@mui/icons-material/MailOutline';
 import ChatIcon from '@mui/icons-material/Chat';
 import { getAnalyticsDashboard, getAnalyticsLearners, getAnalyticsLearnerDetail, downloadAnalyticsExcel } from '../api/analytics';
 import { useAuth } from '../context/AuthContext';
+import AdminLearnerStatusChart from './AdminLearnerStatusChart';
 
 const binLabels = ['0–9%', '10–19%', '20–29%', '30–39%', '40–49%', '50–59%', '60–69%', '70–79%', '80–89%', '90–100%'];
 
@@ -35,6 +36,51 @@ function formatYmdRu(ymd) {
   if (!ymd || ymd.length < 10) return '';
   const [y, m, d] = ymd.split('-');
   return `${d}.${m}.${y}`;
+}
+
+/** Параметры для GET /Analytics/learners (как у выгрузки Excel); только для администратора. */
+function buildLearnersQueryOpts(isAdmin, exportPreset, appliedFrom, appliedTo) {
+  if (!isAdmin) return {};
+  if (exportPreset === 'custom') {
+    if (appliedFrom && appliedTo) {
+      return {
+        fromUtc: `${appliedFrom}T00:00:00.000Z`,
+        toUtc: `${appliedTo}T00:00:00.000Z`,
+      };
+    }
+    return {};
+  }
+  if (exportPreset && exportPreset !== 'all') {
+    return { preset: exportPreset };
+  }
+  return {};
+}
+
+/** Подпись периода для диаграммы; null — режим «всё время», строку не показываем. */
+function describeLearnersPeriod(exportPreset, appliedFrom, appliedTo) {
+  if (exportPreset === 'custom' && appliedFrom && appliedTo) {
+    return `с ${formatYmdRu(appliedFrom)} по ${formatYmdRu(appliedTo)}`;
+  }
+  if (exportPreset === 'week') return 'последние 7 дней';
+  if (exportPreset === 'month') return 'последние 30 дней';
+  if (exportPreset === 'year') return 'последний год';
+  return null;
+}
+
+/** Подпись периода из ответа API (эхо фактического запроса). */
+function learnersPeriodLabelFromServer(payload) {
+  if (!payload?.periodKind || payload.periodKind === 'all') return null;
+  if (payload.periodKind === 'week') return 'последние 7 дней';
+  if (payload.periodKind === 'month') return 'последние 30 дней';
+  if (payload.periodKind === 'year') return 'последний год';
+  if (
+    payload.periodKind === 'range'
+    && payload.effectiveFromYmd
+    && payload.effectiveToYmdInclusive
+  ) {
+    return `с ${formatYmdRu(payload.effectiveFromYmd)} по ${formatYmdRu(payload.effectiveToYmdInclusive)}`;
+  }
+  return null;
 }
 
 export default function AnalyticsTab({ subtitle, chatPath }) {
@@ -62,27 +108,39 @@ export default function AnalyticsTab({ subtitle, chatPath }) {
   const [learnerDetail, setLearnerDetail] = useState(null);
   const [learnerDetailError, setLearnerDetailError] = useState('');
 
-  const load = useCallback(async () => {
-    setError('');
-    setLoading(true);
-    try {
-      const d = await getAnalyticsDashboard();
-      setData(d);
-    } catch (e) {
-      setError(e.message || 'Не удалось загрузить аналитику');
-      setData(null);
-    }
-    try {
-      const L = await getAnalyticsLearners();
-      setLearnersPayload(L);
-    } catch {
-      setLearnersPayload({ learners: [], passingScorePercent: 60 });
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError('');
+      const opts = buildLearnersQueryOpts(
+        authUser?.isAdmin,
+        exportPreset,
+        appliedCustomFromYmd,
+        appliedCustomToYmd,
+      );
+      try {
+        const d = await getAnalyticsDashboard();
+        if (!cancelled) setData(d);
+      } catch (e) {
+        if (!cancelled) {
+          setError(e.message || 'Не удалось загрузить аналитику');
+          setData(null);
+        }
+      }
+      try {
+        const L = await getAnalyticsLearners(opts);
+        if (!cancelled) setLearnersPayload(L);
+      } catch {
+        if (!cancelled) setLearnersPayload({ learners: [], passingScorePercent: 60 });
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authUser?.isAdmin, exportPreset, appliedCustomFromYmd, appliedCustomToYmd]);
 
   const courses = data?.courses ?? [];
   const instructors = data?.instructors;
@@ -252,11 +310,19 @@ export default function AnalyticsTab({ subtitle, chatPath }) {
       setError('Дата начала не может быть позже даты окончания.');
       return;
     }
+    setExportPreset('custom');
     setAppliedCustomFromYmd(customFromYmd);
     setAppliedCustomToYmd(customToYmd);
     setError('');
     setCustomRangeOpen(false);
   };
+
+  /** Диаграмма и таблица «Обучающиеся», выгрузка Excel — без ограничения по датам. */
+  const handleSelectAllTimeForReport = useCallback(() => {
+    setExportPreset('all');
+    setError('');
+    setCustomRangeOpen(false);
+  }, []);
 
   const handleExport = async () => {
     setExporting(true);
@@ -298,11 +364,11 @@ export default function AnalyticsTab({ subtitle, chatPath }) {
           <Typography variant="h5">Аналитика</Typography>
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-          <FormControl size="small" sx={{ minWidth: 240 }}>
-            <InputLabel id="analytics-export-period-label">Период выгрузки</InputLabel>
+          <FormControl size="small" sx={{ minWidth: 260 }}>
+            <InputLabel id="analytics-export-period-label">Период отчёта и Excel</InputLabel>
             <Select
               labelId="analytics-export-period-label"
-              label="Период выгрузки"
+              label="Период отчёта и Excel"
               value={exportPreset}
               onChange={(e) => {
                 const v = e.target.value;
@@ -339,7 +405,7 @@ export default function AnalyticsTab({ subtitle, chatPath }) {
       </Box>
 
       <Dialog open={customRangeOpen} onClose={() => setCustomRangeOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Период выгрузки</DialogTitle>
+        <DialogTitle>Период отчёта</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Укажите начало и последний календарный день интервала. Отчёт строится от 00:00 начальной даты до 00:00 дня после выбранного конца.
@@ -363,9 +429,14 @@ export default function AnalyticsTab({ subtitle, chatPath }) {
             />
           </Box>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setCustomRangeOpen(false)}>Отмена</Button>
-          <Button variant="contained" onClick={handleApplyCustomRange}>Готово</Button>
+        <DialogActions sx={{ flexWrap: 'wrap', gap: 1, px: 3, pb: 2 }}>
+          <Button color="inherit" onClick={handleSelectAllTimeForReport} sx={{ mr: 'auto' }}>
+            За всё время
+          </Button>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, ml: { xs: 0, sm: 'auto' } }}>
+            <Button onClick={() => setCustomRangeOpen(false)}>Отмена</Button>
+            <Button variant="contained" onClick={handleApplyCustomRange}>Готово</Button>
+          </Box>
         </DialogActions>
       </Dialog>
       {subtitle && (
@@ -408,6 +479,33 @@ export default function AnalyticsTab({ subtitle, chatPath }) {
             </Paper>
           </Grid>
         </Grid>
+      )}
+
+      {authUser?.isAdmin && learners.length > 0 && (
+        <>
+          <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1, mb: 1 }}>
+            <Button size="small" variant="text" onClick={handleSelectAllTimeForReport}>
+              За всё время
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => {
+                setExportPreset('custom');
+                openCustomRangeDialog();
+              }}
+            >
+              Свои даты…
+            </Button>
+          </Box>
+          <AdminLearnerStatusChart
+            learners={learners}
+            periodLabel={
+              learnersPeriodLabelFromServer(learnersPayload)
+              ?? describeLearnersPeriod(exportPreset, appliedCustomFromYmd, appliedCustomToYmd)
+            }
+          />
+        </>
       )}
 
       {learners.length > 0 && (
