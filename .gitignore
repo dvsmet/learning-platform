@@ -1,0 +1,63 @@
+#  .NET / ASP.NET Core
+bin/
+obj/
+publish/
+*.dll
+*.pdb
+*.exe
+*.cache
+project.lock.json
+*.nupkg
+*.snupkg
+
+#  Frontend (React / Vite / Node)
+client-app/node_modules/
+client-app/dist/
+wwwroot/
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.eslintcache
+
+# Локальные env-файлы фронтенда
+client-app/.env
+client-app/.env.local
+client-app/.env.*.local
+
+#  Секреты и локальная конфигурация
+appsettings.Production.json
+appsettings.*.local.json
+secrets.json
+*.user
+
+#  Бандл JDK (не должен попадать в репозиторий)
+openJdk-25/
+
+#  Инструменты (Trunk и т.п.)
+.trunk/
+!.trunk/trunk.yaml
+
+#  IDE / Editors
+.vs/
+.vscode/
+.idea/
+*.suo
+*.userosscache
+*.sln.docstates
+*.DotSettings.user
+
+#  Логи
+*.log
+logs/
+
+#  Бэкапы БД
+backup.sql
+backup.dump
+*.bak
+
+#  OS
+.DS_Store
+Thumbs.db
+desktop.ini
